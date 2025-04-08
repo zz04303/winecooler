@@ -1,0 +1,24 @@
+{
+    "name": "homie-dev001",
+    "device_id": "dev001",
+    "wifi": {
+        "ssid": "XXXXXX",
+        "password": "XXXXXX"
+    },
+    "mqtt": {
+        "host": "192.168.xxx.yyy",
+        "base_topic": "homie/",
+        "auth": true,
+        "username": "homeassistant",
+        "password": "XXXXXX"       
+    },
+    "ota": {
+        "enabled": true
+    },
+    "settings": {
+        "setpoint": 18,
+        "hysteresis": 0.2,
+        "publish_interval": 10,
+        "adjust_interval": 120
+    }    
+}
