@@ -41,6 +41,7 @@ int            adjust_interval;
 // Dallas temperature variables
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
+DeviceAddress addr_temp0,addr_temp1; // device addresses
 
 // Analog
 #define PIN_ANALOG  A0
@@ -242,7 +243,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.7");
+  Homie_setFirmware("winecooler", "3.0.8");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -284,6 +285,8 @@ void setup() {
   //3.0.5   - 20241123 sensor.begin naar setup() en last_adjust=0 na testing msg.
   //3.0.6   - 20250105 allow testing cool_max > 75 (beacause I see still cool_level > 0, even when cool_pot = 75 = current fixex cool_max)
   //3.0.7   - 20250106 cool_max set-able thru config.json
+  //3.0.8   - 20250415 winecooler nu in repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik')
+  //                   DS18B20 sensors set resolution explicitly 
   
   Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -302,6 +305,10 @@ void setup() {
   
   pot.begin(CS,INC,UD); // Initialize Digital potentiometer X9C
   sensors.begin();      // Initialize Digital thermometer DS18B20
+  sensors.getAddress(addr_temp0, 0);
+  sensors.getAddress(addr_temp1, 1);
+  sensors.setResolution(addr_temp0,11); // The resolution of the temperature sensor is user-configurable to 9, 10, 11, or 12 bits, corresponding to increments of 0.5°C, 0.25°C, 0.125°C, and 0.0625°C, respectively.
+  sensors.setResolution(addr_temp1,11); // The default resolution at power-up is 12-bit (ref:  https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf )
 
   Homie.onEvent(onHomieEvent);
 
