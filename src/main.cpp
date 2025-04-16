@@ -243,7 +243,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.8");
+  Homie_setFirmware("winecooler", "3.0.9");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -287,6 +287,7 @@ void setup() {
   //3.0.7   - 20250106 cool_max set-able thru config.json
   //3.0.8   - 20250415 winecooler nu in repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik')
   //                   DS18B20 sensors set resolution explicitly 
+  //3.0.9   - 20250416 Redo with corrrect repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik' = 'develop' + 2 commits)
   
   Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
