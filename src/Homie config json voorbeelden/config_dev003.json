@@ -1,0 +1,25 @@
+{
+    "name": "homie-dev003",
+    "device_id": "dev003",
+    "wifi": {
+        "ssid": "R7800G2",
+        "password": "1960196519931996"
+    },
+    "mqtt": {
+        "host": "192.168.42.137",
+        "base_topic": "homie/",
+        "auth": true,
+        "username": "homeassistant",
+        "password": "Phiepee4niroolai5ho9aif5oore4WieNgeipaeceigajeiliepah6kahg1loaPe"       
+    },
+    "ota": {
+        "enabled": true
+    },
+    "settings": {
+        "setpoint": 18,
+        "hysteresis": 0.2,
+        "publish_interval": 10,
+        "adjust_interval": 600,
+        "cool_max":80
+    }    
+}
