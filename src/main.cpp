@@ -77,6 +77,9 @@ int           heat_min        = 0;
 int           heat_max        = 1024;
 int           heat_step       = 1;
 
+// Reset Other
+#define  PIN_RST_OTHER    D1      // Send pulse low to be used as remote reset of other arduino
+
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
 
@@ -239,11 +242,23 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 }
 
+bool PulseLowHandler(const HomieRange& range, const String& value) {
+  if (value != "true" ) return false;
+
+  digitalWrite(PIN_RST_OTHER, LOW);
+  winecoolerNode.setProperty("rst_other").send(value);
+  Homie.getLogger() << "PIN_RST_OTHER is pulsed LOW" << endl;
+  delay(100);
+  digitalWrite(PIN_RST_OTHER, HIGH);
+
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.9");
+  Homie_setFirmware("winecooler", "3.0.10");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -288,6 +303,8 @@ void setup() {
   //3.0.8   - 20250415 winecooler nu in repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik')
   //                   DS18B20 sensors set resolution explicitly 
   //3.0.9   - 20250416 Redo with corrrect repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik' = 'develop' + 2 commits)
+  //3.0.10  - 20251116 add pulse low to be used for rsetting an other arduino via output pin D1 to be connected to RST in on the other arduino
+  //                   add cool_max to PublishString
   
   Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -321,6 +338,10 @@ void setup() {
   mqttClient.onSubscribe(onMqttSubscribe);
   mqttClient.onMessage(onMqttMessage);
 
+  winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
+  pinMode(PIN_RST_OTHER, OUTPUT);
+  digitalWrite(PIN_RST_OTHER, HIGH);
+
   Homie.setup();
 
 }
@@ -349,6 +370,7 @@ void loop() {
     PublishString += "\"heap_frag\": "+       String(ESP.getHeapFragmentation())+",";
     PublishString += "\"adjust_interval\": "+ String(adjust_interval)+",";
     PublishString += "\"cool_level\": "+      String(cool_level)+",";
+    PublishString += "\"cool_max\": "+        String(cool_max)+",";
     PublishString += "\"cool_pot\": "+        String(cool_pot)+",";
     PublishString += "\"cool_step\": "+       String(cool_step)+",";
     PublishString += "\"heat_pwm\": "+        String(heat_pwm)+",";
