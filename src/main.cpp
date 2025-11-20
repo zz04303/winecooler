@@ -4,17 +4,6 @@
 #include <DallasTemperature.h>
 #include <X9C.h>
 
-//https://github.com/marvinroger/async-mqtt-client/blob/develop/examples/FullyFeatured-ESP8266/FullyFeatured-ESP8266.ino
-//https://github.com/marvinroger/async-mqtt-client/issues/92
-#include <AsyncMqttClient.h>
-AsyncMqttClient& mqttClient = Homie.getMqttClient();
-String payloadBuf;
-String payloadBuf_substr;
-
-// char* topic = new char[strlen(Homie.getConfiguration().mqtt.baseTopic) + strlen(Homie.getConfiguration().deviceId) + 1 + strlen(winecoolerNode.getId()) + 1 + 7 + 1];
-char* topic = new char[strlen("homie/dev00x/winecooler/testing") + 1];
-uint16_t packetIdSub = 0;
-
 bool get_settings = true; 
 
 const int      DEFAULT_PUBLISH_INTERVAL = 10;
@@ -83,6 +72,7 @@ int           heat_step       = 1;
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
 
+
 // VOORBEELD:  mosquitto_pub -t 'homie/dev00x/$implementation/config/set' -m '{"settings":{"setpoint":12}}' -r
 //  zorg er voor dat er al een "settings":{}  in de initiële config zit.
 HomieSetting<long>      publish_intervalSetting("publish_interval", "temp interval in seconds");
@@ -93,7 +83,7 @@ HomieSetting<long>              cool_maxSetting("cool_max"        , "max cool po
 
 void loopHandler() {
   if (millis() - last_publish >= publish_intervalSetting.get() * 1000UL || last_publish == 0) {
-
+    
     winecoolerNode.setProperty("data").send("{"+String(PublishString)+"}");
     
     // last_publish = millis();  // NIET hier maar in loop() function 
@@ -103,151 +93,122 @@ void loopHandler() {
 void onHomieEvent(const HomieEvent& event) {
   switch (event.type) {
     case HomieEventType::STANDALONE_MODE:
-      Serial << "Standalone mode started" << endl;
-      break;
+    Serial << "Standalone mode started" << endl;
+    break;
     case HomieEventType::CONFIGURATION_MODE:
-      Serial << "Configuration mode started" << endl;
-      break;
+    Serial << "Configuration mode started" << endl;
+    break;
     case HomieEventType::NORMAL_MODE:
-      Serial << "Normal mode started" << endl;
+    Serial << "Normal mode started" << endl;
       break;
     case HomieEventType::OTA_STARTED:
       Serial << "OTA started" << endl;
       break;
-    case HomieEventType::OTA_PROGRESS:
+      case HomieEventType::OTA_PROGRESS:
       Serial << "OTA progress, " << event.sizeDone << "/" << event.sizeTotal << endl;
       break;
-    case HomieEventType::OTA_FAILED:
+      case HomieEventType::OTA_FAILED:
       Serial << "OTA failed" << endl;
       break;
     case HomieEventType::OTA_SUCCESSFUL:
-      Serial << "OTA successful" << endl;
-      break;
+    Serial << "OTA successful" << endl;
+    break;
     case HomieEventType::ABOUT_TO_RESET:
-      Serial << "About to reset" << endl;
-      break;
+    Serial << "About to reset" << endl;
+    break;
     case HomieEventType::WIFI_CONNECTED:
-      Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
+    Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
       break;
-    case HomieEventType::WIFI_DISCONNECTED:
+      case HomieEventType::WIFI_DISCONNECTED:
       Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << endl;
       break;
-    case HomieEventType::MQTT_READY:
-
+      case HomieEventType::MQTT_READY:
       Serial << "MQTT connected" << endl;
-
-      // idea based on https://github.com/homieiot/homie-esp8266/issues/138
-      strcpy(topic, Homie.getConfiguration().mqtt.baseTopic);
-      strcat(topic, Homie.getConfiguration().deviceId);
-      strcat_P(topic, PSTR("/"));
-      strcat(topic, winecoolerNode.getId());
-      strcat_P(topic, PSTR("/testing"));
-
-      Serial << "MQTT Subscribing to topic: " << topic << endl;
-      packetIdSub = mqttClient.subscribe(topic, 0);
-      Serial << "MQTT Subscribing at QoS 0, packetId: " << packetIdSub << endl;
-
       break;
-    case HomieEventType::MQTT_DISCONNECTED:
+      case HomieEventType::MQTT_DISCONNECTED:
       Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << endl;
       break;
-    case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
+      case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
       // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
       break;
-    case HomieEventType::READY_TO_SLEEP:
+      case HomieEventType::READY_TO_SLEEP:
       Serial << "Ready to sleep" << endl;
       break;
-    case HomieEventType::SENDING_STATISTICS:
+      case HomieEventType::SENDING_STATISTICS:
       Serial << "Sending statistics" << endl;
       break;
+    }
   }
-}
+  
+  
+  bool DynConfigHandler(const HomieRange& range, const String& value) {
+    
+    String         value_substr;
+    
+    winecoolerNode.setProperty("dyncfg").send(value);
+    Serial << "dynamic re-config value='" << value << "'" << endl;
+    
+    if (value != "") {
+      int i1 = value.indexOf(',');
+      int i2 = value.indexOf(',',i1+1);
+      int i3 = value.indexOf(',',i2+1);
+      int i4 = value.indexOf(',',i3+1);
+      int i5 = value.indexOf(',',i4+1);
+      int i6 = value.indexOf(',',i5+1);
+      int i7 = value.indexOf(',',i6+1);
+      int i8 = value.indexOf(',',i7+1);
 
-void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  Serial.println("Subscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-  Serial.print("  qos: ");
-  Serial.println(qos);
-}
+      value_substr = value.substring(0, i1);
+      testing_temp0     = atof(value_substr.c_str());
+    
+      value_substr = value.substring(i1 + 1, i2);
+      setpoint          = atof(value_substr.c_str());
 
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-// https://github.com/marvinroger/async-mqtt-client/issues/92  
-  if (index == 0) {
-    payloadBuf = "";
-  }
+      value_substr = value.substring(i2 + 1, i3);
+      hysteresis        = atof(value_substr.c_str());
 
-  auto pl = len;
-  auto p = payload;
-  while (pl--) {
-    payloadBuf += *(p++);
-  }
+      value_substr = value.substring(i3 + 1, i4);
+      cool_step         = atoi(value_substr.c_str());
 
-  if (index + len == total) {
+      value_substr = value.substring(i4 + 1, i5);
+      cool_max          = atoi(value_substr.c_str());
 
-      Serial << "payloadBuf=" << payloadBuf << endl;
-      if (payloadBuf != "false") {
+      value_substr = value.substring(i5 + 1, i6);
+      testing_cool_pot  = atoi(value_substr.c_str());
 
+      value_substr = value.substring(i6 + 1, i7);
+      heat_step         = atoi(value_substr.c_str());
 
-        int i1 = payloadBuf.indexOf(',');
-        int i2 = payloadBuf.indexOf(',',i1+1);
-        int i3 = payloadBuf.indexOf(',',i2+1);
-        int i4 = payloadBuf.indexOf(',',i3+1);
-        int i5 = payloadBuf.indexOf(',',i4+1);
-        int i6 = payloadBuf.indexOf(',',i5+1);
-        int i7 = payloadBuf.indexOf(',',i6+1);
-        int i8 = payloadBuf.indexOf(',',i7+1);
+      value_substr = value.substring(i7 + 1, i8);
+      testing_heat_pwm  = atoi(value_substr.c_str());
 
-        payloadBuf_substr = payloadBuf.substring(0, i1);
-        testing_temp0     = atof(payloadBuf_substr.c_str());
+      value_substr = value.substring(i8 + 1);
+      adjust_interval   = atoi(value_substr.c_str());
 
-        payloadBuf_substr = payloadBuf.substring(i1 + 1, i2);
-        setpoint          = atof(payloadBuf_substr.c_str());
+      last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
 
-        payloadBuf_substr = payloadBuf.substring(i2 + 1, i3);
-        hysteresis        = atof(payloadBuf_substr.c_str());
+      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
 
-        payloadBuf_substr = payloadBuf.substring(i3 + 1, i4);
-        cool_step         = atoi(payloadBuf_substr.c_str());
+      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
+      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'testing_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,testing_cool_pot=0,heat_step=1,testing_heat_pwm=0,adjust_interval=20'
 
-        payloadBuf_substr = payloadBuf.substring(i4 + 1, i5);
-        cool_max          = atoi(payloadBuf_substr.c_str());
+      // When testing_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual testing override.
+      // When testing_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual testing override.
+      // When testing_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual testing override.
 
-        payloadBuf_substr = payloadBuf.substring(i5 + 1, i6);
-        testing_cool_pot  = atoi(payloadBuf_substr.c_str());
+    }
 
-        payloadBuf_substr = payloadBuf.substring(i6 + 1, i7);
-        heat_step         = atoi(payloadBuf_substr.c_str());
-
-        payloadBuf_substr = payloadBuf.substring(i7 + 1, i8);
-        testing_heat_pwm  = atoi(payloadBuf_substr.c_str());
-
-        payloadBuf_substr = payloadBuf.substring(i8 + 1);
-        adjust_interval   = atoi(payloadBuf_substr.c_str());
-
-        last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
-
-        // ....  -t 'homie/dev00x/testing/temp0' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
-
-        // ....  -t 'homie/dev00x/testing/temp0' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
-        // ....  -t 'homie/dev00x/testing/temp0' -m 'testing_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,testing_cool_pot=0,heat_step=1,testing_heat_pwm=0,adjust_interval=20'
-
-        // When testing_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual testing override.
-        // When testing_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual testing override.
-        // When testing_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual testing override.
-      }
-
-
-  }
-
+  return true;
 }
 
 bool PulseLowHandler(const HomieRange& range, const String& value) {
   if (value != "true" ) return false;
 
+// ....   -t 'homie/dev00x/winecooler/rst_other/set' -m 'true'
+
   digitalWrite(PIN_RST_OTHER, LOW);
   winecoolerNode.setProperty("rst_other").send(value);
-  Homie.getLogger() << "PIN_RST_OTHER is pulsed LOW" << endl;
+  Serial << "PIN_RST_OTHER is pulsed LOW" << endl;
   delay(100);
   digitalWrite(PIN_RST_OTHER, HIGH);
 
@@ -258,7 +219,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.10");
+  Homie_setFirmware("winecooler", "3.0.11");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -305,6 +266,7 @@ void setup() {
   //3.0.9   - 20250416 Redo with corrrect repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik' = 'develop' + 2 commits)
   //3.0.10  - 20251116 add pulse low to be used for rsetting an other arduino via output pin D1 to be connected to RST in on the other arduino
   //                   add cool_max to PublishString
+  //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyn_config' 
   
   Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -335,12 +297,11 @@ void setup() {
                                            //           https://github.com/homieiot/homie-esp8266/issues/340
                                            //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
 
-  mqttClient.onSubscribe(onMqttSubscribe);
-  mqttClient.onMessage(onMqttMessage);
-
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
   digitalWrite(PIN_RST_OTHER, HIGH);
+  
+  winecoolerNode.advertise("dyncfg").setName("DynConfig").setDatatype("boolean").settable(DynConfigHandler);  
 
   Homie.setup();
 
