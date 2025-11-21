@@ -3,6 +3,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <X9C.h>
+#include <U8g2lib.h>
 
 bool get_settings = true; 
 
@@ -18,9 +19,9 @@ int            publish_interval;
 float          setpoint;
 float          hysteresis;
 float          temp0            = -127.00;
-float          testing_temp0    = 0.0;   // used for testing override 
-int            testing_cool_pot = 0;     // used for testing override 
-int            testing_heat_pwm = 0;     // used for testing override 
+float          dyncfg_temp0    = 0.0;   // used for dyncfg override 
+int            dyncfg_cool_pot = 0;     // used for dyncfg override 
+int            dyncfg_heat_pwm = 0;     // used for dyncfg override 
 float          temp1            = -127.00;
 int            adjust_interval;
 
@@ -67,7 +68,12 @@ int           heat_max        = 1024;
 int           heat_step       = 1;
 
 // Reset Other
-#define  PIN_RST_OTHER    D1      // Send pulse low to be used as remote reset of other arduino
+#define  PIN_RST_OTHER    D7      // Send pulse low to be used as remote reset of other arduino
+
+// OLED display
+U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
+String temp0_String;
+String temp1_String;
 
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
@@ -80,8 +86,13 @@ HomieSetting<double>            setpointSetting("setpoint"        , "temp setpoi
 HomieSetting<double>          hysteresisSetting("hysteresis"      , "temp hysteresis");
 HomieSetting<long>       adjust_intervalSetting("adjust_interval" , "adjust interval");
 HomieSetting<long>              cool_maxSetting("cool_max"        , "max cool potmeter");
+HomieSetting<const char*>      txt_temp0Setting("txt_temp0"        , "display txt_temp0");
+HomieSetting<const char*>      txt_temp1Setting("txt_temp1"        , "display txt_temp1");
+char txt_temp0[20];
+char txt_temp1[20];
 
 void loopHandler() {
+
   if (millis() - last_publish >= publish_intervalSetting.get() * 1000UL || last_publish == 0) {
     
     winecoolerNode.setProperty("data").send("{"+String(PublishString)+"}");
@@ -159,7 +170,7 @@ void onHomieEvent(const HomieEvent& event) {
       int i8 = value.indexOf(',',i7+1);
 
       value_substr = value.substring(0, i1);
-      testing_temp0     = atof(value_substr.c_str());
+      dyncfg_temp0     = atof(value_substr.c_str());
     
       value_substr = value.substring(i1 + 1, i2);
       setpoint          = atof(value_substr.c_str());
@@ -174,13 +185,13 @@ void onHomieEvent(const HomieEvent& event) {
       cool_max          = atoi(value_substr.c_str());
 
       value_substr = value.substring(i5 + 1, i6);
-      testing_cool_pot  = atoi(value_substr.c_str());
+      dyncfg_cool_pot  = atoi(value_substr.c_str());
 
       value_substr = value.substring(i6 + 1, i7);
       heat_step         = atoi(value_substr.c_str());
 
       value_substr = value.substring(i7 + 1, i8);
-      testing_heat_pwm  = atoi(value_substr.c_str());
+      dyncfg_heat_pwm  = atoi(value_substr.c_str());
 
       value_substr = value.substring(i8 + 1);
       adjust_interval   = atoi(value_substr.c_str());
@@ -190,11 +201,11 @@ void onHomieEvent(const HomieEvent& event) {
       // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
 
       // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
-      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'testing_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,testing_cool_pot=0,heat_step=1,testing_heat_pwm=0,adjust_interval=20'
+      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'dyncfg_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,dyncfg_cool_pot=0,heat_step=1,dyncfg_heat_pwm=0,adjust_interval=20'
 
-      // When testing_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual testing override.
-      // When testing_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual testing override.
-      // When testing_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual testing override.
+      // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
+      // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
+      // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
 
     }
 
@@ -208,7 +219,7 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
 
   digitalWrite(PIN_RST_OTHER, LOW);
   winecoolerNode.setProperty("rst_other").send(value);
-  Serial << "PIN_RST_OTHER is pulsed LOW" << endl;
+  Serial << "PIN_RST_OTHER is pulsed LOW" <<endl;
   delay(100);
   digitalWrite(PIN_RST_OTHER, HIGH);
 
@@ -219,7 +230,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.11");
+  Homie_setFirmware("winecooler", "3.0.12");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -258,22 +269,24 @@ void setup() {
   //                   heater nu niet meer via relay maar PWM control
   //                   veel meer... 
   //3.0.4   - 20241122 get config settings aan begin van loop(), zodat nu ook volledig zonder connectie toch temp control werkt
-  //3.0.5   - 20241123 sensor.begin naar setup() en last_adjust=0 na testing msg.
-  //3.0.6   - 20250105 allow testing cool_max > 75 (beacause I see still cool_level > 0, even when cool_pot = 75 = current fixex cool_max)
+  //3.0.5   - 20241123 sensor.begin naar setup() en last_adjust=0 na dyncfg msg.
+  //3.0.6   - 20250105 allow dyncfg cool_max > 75 (beacause I see still cool_level > 0, even when cool_pot = 75 = current fixex cool_max)
   //3.0.7   - 20250106 cool_max set-able thru config.json
   //3.0.8   - 20250415 winecooler nu in repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik')
   //                   DS18B20 sensors set resolution explicitly 
   //3.0.9   - 20250416 Redo with corrrect repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik' = 'develop' + 2 commits)
   //3.0.10  - 20251116 add pulse low to be used for rsetting an other arduino via output pin D1 to be connected to RST in on the other arduino
   //                   add cool_max to PublishString
-  //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyn_config' 
+  //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyncfg' 
+  //3.0.12  - 20251121 add I2C display, using https://github.com/olikraus/U8g2_Arduino (uses pins D1 and D2, which are the Wemos D1 mini pins for SCL and SDA respectively )
+  //                   use pin D7 in stead of D1 for rst_other (using D3 or D4 failed, arduino's forever resetting)
   
   Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
   Homie.getLogger() << "ESP FreeSketchSpace   : " << ESP.getFreeSketchSpace() << endl;
   Homie.getLogger() << "ESP FreeHeap          : " << ESP.getFreeHeap() << endl;
   Homie.getLogger() << "ESP HeapFragmentation : " << ESP.getHeapFragmentation() << endl;
-
+  
   Homie.setLoopFunction(loopHandler);
   winecoolerNode.advertise("data").setName("Data").setDatatype("String");
 
@@ -282,6 +295,8 @@ void setup() {
   hysteresisSetting.setDefaultValue(DEFAULT_TEMP_HYSTERESIS).setValidator([] (double candidate) { return candidate >= 0.1; });
   adjust_intervalSetting.setDefaultValue(DEFAULT_ADJUST_INTV).setValidator([] (long candidate) { return candidate == 0 || candidate >= 60; });
   cool_maxSetting.setDefaultValue(DEFAULT_COOL_MAX).setValidator([] (long candidate) { return candidate >= 75; });
+  txt_temp0Setting.setDefaultValue("");
+  txt_temp1Setting.setDefaultValue("");
   
   pot.begin(CS,INC,UD); // Initialize Digital potentiometer X9C
   sensors.begin();      // Initialize Digital thermometer DS18B20
@@ -302,6 +317,9 @@ void setup() {
   digitalWrite(PIN_RST_OTHER, HIGH);
   
   winecoolerNode.advertise("dyncfg").setName("DynConfig").setDatatype("boolean").settable(DynConfigHandler);  
+  // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
+
+  u8g2.begin(); // OLED display
 
   Homie.setup();
 
@@ -322,7 +340,7 @@ void loop() {
 
     sensors.requestTemperatures();        // Send the command to get temperatures, takes 1 second.
     temp0 = sensors.getTempCByIndex(0);   // winecooler inside temp
-    if (testing_temp0 != 0.0) temp0 = testing_temp0;
+    if (dyncfg_temp0 != 0.0) temp0 = dyncfg_temp0;
     temp1 = sensors.getTempCByIndex(1);  // winecooler outside temp
     
     cool_level = analogRead(PIN_ANALOG);
@@ -341,8 +359,27 @@ void loop() {
     PublishString += "\"setpoint\": "+        String(setpoint)+",";
     PublishString += "\"temp0\": "+           String(temp0)+",";
     PublishString += "\"temp1\": "+           String(temp1); //no trailing comma!!
-
+    
     Serial << "PublishString=" << PublishString << endl;
+
+    temp0_String = String(temp0);
+    temp1_String = String(temp1);
+    strcpy(txt_temp0, txt_temp0Setting.get());
+    strcpy(txt_temp1, txt_temp1Setting.get());
+    char empty_string[] = "";
+
+    u8g2.firstPage();
+    do {
+      u8g2.setFont(u8g2_font_ncenB12_tr);
+      if (strcmp(txt_temp0,empty_string) > 0 ) {
+        u8g2.drawStr(0,24,txt_temp0);
+        u8g2.drawStr(0,48,temp0_String.c_str());
+      }
+      if (strcmp(txt_temp1,empty_string) > 0 ) {
+      u8g2.drawStr(64,24,txt_temp1);
+      u8g2.drawStr(64,48,temp1_String.c_str());
+      }
+    } while ( u8g2.nextPage() );    
 
     last_publish = millis();
     }
@@ -352,14 +389,14 @@ void loop() {
     if(setpoint > 0.0 && temp0 > -85.00 && temp0 < 85.00 && adjust_interval != 0UL)   {    // temp0  +/- 85.00 or -127.00 are invalid (disconneted, wiring pull up resistor or very first measurement)
 
 
-      if (testing_cool_pot != 0) {
-        cool_pot = testing_cool_pot;
-        testing_cool_pot = 0;
+      if (dyncfg_cool_pot != 0) {
+        cool_pot = dyncfg_cool_pot;
+        dyncfg_cool_pot = 0;
       };
 
-      if (testing_heat_pwm != 0) {
-        heat_pwm = testing_heat_pwm;
-        testing_heat_pwm = 0;
+      if (dyncfg_heat_pwm != 0) {
+        heat_pwm = dyncfg_heat_pwm;
+        dyncfg_heat_pwm = 0;
       };
 
       if (temp0 < (setpoint - hysteresis) ) 
@@ -394,4 +431,5 @@ void loop() {
   }
 
   Homie.loop();
-}
+
+  }
