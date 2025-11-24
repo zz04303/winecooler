@@ -3,9 +3,15 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <X9C.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 #include <U8g2lib.h>
 
-bool get_settings = true; 
+WiFiUDP ntpUDP;
+// You can specify the time server pool and the offset (in seconds, can be
+// changed later with setTimeOffset() ). Additionally you can specify the
+// update interval (in milliseconds, can be changed using setUpdateInterval() ).
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
 
 const int      DEFAULT_PUBLISH_INTERVAL = 10;
 const int      DEFAULT_COOL_MAX         = 75;
@@ -18,12 +24,14 @@ String         PublishString;
 int            publish_interval;
 float          setpoint;
 float          hysteresis;
-float          temp0            = -127.00;
+float          temp0           = -127.00;
 float          dyncfg_temp0    = 0.0;   // used for dyncfg override 
 int            dyncfg_cool_pot = 0;     // used for dyncfg override 
 int            dyncfg_heat_pwm = 0;     // used for dyncfg override 
-float          temp1            = -127.00;
+float          temp1           = -127.00;
 int            adjust_interval;
+int            mqtt_discon     = 0;
+int            wifi_discon     = 0;
 
 // Temperature sensor on D5, place pull-up resistor between 2.2K or 4.7K to 5V
 #define        ONE_WIRE_BUS D5      //temp sensor DS18B20 on D5(5)
@@ -71,9 +79,11 @@ int           heat_step       = 1;
 #define  PIN_RST_OTHER    D7      // Send pulse low to be used as remote reset of other arduino
 
 // OLED display
-U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
 String temp0_String;
 String temp1_String;
+int    updateDisplayArea_ty;
+int    drawStr_ty;
 
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
@@ -86,8 +96,9 @@ HomieSetting<double>            setpointSetting("setpoint"        , "temp setpoi
 HomieSetting<double>          hysteresisSetting("hysteresis"      , "temp hysteresis");
 HomieSetting<long>       adjust_intervalSetting("adjust_interval" , "adjust interval");
 HomieSetting<long>              cool_maxSetting("cool_max"        , "max cool potmeter");
-HomieSetting<const char*>      txt_temp0Setting("txt_temp0"        , "display txt_temp0");
-HomieSetting<const char*>      txt_temp1Setting("txt_temp1"        , "display txt_temp1");
+HomieSetting<const char*>      txt_temp0Setting("txt_temp0"       , "display txt_temp0");
+HomieSetting<const char*>      txt_temp1Setting("txt_temp1"       , "display txt_temp1");
+HomieSetting<bool>          txt_2nd_lineSetting("txt_2nd_line"    , "display txt on 2nd line");
 char txt_temp0[20];
 char txt_temp1[20];
 
@@ -101,121 +112,120 @@ void loopHandler() {
   }
 }
 
-void onHomieEvent(const HomieEvent& event) {
+void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie-esp8266/docs/stable/advanced-usage/events/
   switch (event.type) {
     case HomieEventType::STANDALONE_MODE:
-    Serial << "Standalone mode started" << endl;
-    break;
+      Serial << "Standalone mode started" << endl;
+      break;
     case HomieEventType::CONFIGURATION_MODE:
-    Serial << "Configuration mode started" << endl;
-    break;
+      Serial << "Configuration mode started" << endl;
+      break;
     case HomieEventType::NORMAL_MODE:
-    Serial << "Normal mode started" << endl;
+      Serial << "Normal mode started" << endl;
       break;
     case HomieEventType::OTA_STARTED:
       Serial << "OTA started" << endl;
       break;
-      case HomieEventType::OTA_PROGRESS:
+    case HomieEventType::OTA_PROGRESS:
       Serial << "OTA progress, " << event.sizeDone << "/" << event.sizeTotal << endl;
       break;
-      case HomieEventType::OTA_FAILED:
+    case HomieEventType::OTA_FAILED:
       Serial << "OTA failed" << endl;
       break;
     case HomieEventType::OTA_SUCCESSFUL:
-    Serial << "OTA successful" << endl;
-    break;
+      Serial << "OTA successful" << endl;
+      break;
     case HomieEventType::ABOUT_TO_RESET:
-    Serial << "About to reset" << endl;
-    break;
+      Serial << "About to reset" << endl;
+      break;
     case HomieEventType::WIFI_CONNECTED:
-    Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
+      Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
       break;
-      case HomieEventType::WIFI_DISCONNECTED:
-      Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << endl;
+    case HomieEventType::WIFI_DISCONNECTED:
+      Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << " count: " << wifi_discon << endl;
       break;
-      case HomieEventType::MQTT_READY:
+    case HomieEventType::MQTT_READY:
       Serial << "MQTT connected" << endl;
       break;
-      case HomieEventType::MQTT_DISCONNECTED:
-      Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << endl;
+    case HomieEventType::MQTT_DISCONNECTED:
+      mqtt_discon++;
+      Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << " count: " << mqtt_discon << endl;
       break;
-      case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
+    case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
       // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
       break;
-      case HomieEventType::READY_TO_SLEEP:
+    case HomieEventType::READY_TO_SLEEP:
       Serial << "Ready to sleep" << endl;
       break;
-      case HomieEventType::SENDING_STATISTICS:
+    case HomieEventType::SENDING_STATISTICS:
       Serial << "Sending statistics" << endl;
       break;
     }
   }
   
+
+bool DynConfigHandler(const HomieRange& range, const String& value) {
   
-  bool DynConfigHandler(const HomieRange& range, const String& value) {
-    
-    String         value_substr;
-    
-    winecoolerNode.setProperty("dyncfg").send(value);
-    Serial << "dynamic re-config value='" << value << "'" << endl;
-    
-    if (value != "") {
-      int i1 = value.indexOf(',');
-      int i2 = value.indexOf(',',i1+1);
-      int i3 = value.indexOf(',',i2+1);
-      int i4 = value.indexOf(',',i3+1);
-      int i5 = value.indexOf(',',i4+1);
-      int i6 = value.indexOf(',',i5+1);
-      int i7 = value.indexOf(',',i6+1);
-      int i8 = value.indexOf(',',i7+1);
+  String         value_substr;
+  
+  winecoolerNode.setProperty("dyncfg").send(value);
+  Serial << "dynamic re-config value='" << value << "'" << endl;
+  
+  if (value != "") {
+    int i1 = value.indexOf(',');
+    int i2 = value.indexOf(',',i1+1);
+    int i3 = value.indexOf(',',i2+1);
+    int i4 = value.indexOf(',',i3+1);
+    int i5 = value.indexOf(',',i4+1);
+    int i6 = value.indexOf(',',i5+1);
+    int i7 = value.indexOf(',',i6+1);
+    int i8 = value.indexOf(',',i7+1);
 
-      value_substr = value.substring(0, i1);
-      dyncfg_temp0     = atof(value_substr.c_str());
-    
-      value_substr = value.substring(i1 + 1, i2);
-      setpoint          = atof(value_substr.c_str());
+    value_substr = value.substring(0, i1);
+    dyncfg_temp0     = atof(value_substr.c_str());
+  
+    value_substr = value.substring(i1 + 1, i2);
+    setpoint          = atof(value_substr.c_str());
 
-      value_substr = value.substring(i2 + 1, i3);
-      hysteresis        = atof(value_substr.c_str());
+    value_substr = value.substring(i2 + 1, i3);
+    hysteresis        = atof(value_substr.c_str());
 
-      value_substr = value.substring(i3 + 1, i4);
-      cool_step         = atoi(value_substr.c_str());
+    value_substr = value.substring(i3 + 1, i4);
+    cool_step         = atoi(value_substr.c_str());
 
-      value_substr = value.substring(i4 + 1, i5);
-      cool_max          = atoi(value_substr.c_str());
+    value_substr = value.substring(i4 + 1, i5);
+    cool_max          = atoi(value_substr.c_str());
 
-      value_substr = value.substring(i5 + 1, i6);
-      dyncfg_cool_pot  = atoi(value_substr.c_str());
+    value_substr = value.substring(i5 + 1, i6);
+    dyncfg_cool_pot  = atoi(value_substr.c_str());
 
-      value_substr = value.substring(i6 + 1, i7);
-      heat_step         = atoi(value_substr.c_str());
+    value_substr = value.substring(i6 + 1, i7);
+    heat_step         = atoi(value_substr.c_str());
 
-      value_substr = value.substring(i7 + 1, i8);
-      dyncfg_heat_pwm  = atoi(value_substr.c_str());
+    value_substr = value.substring(i7 + 1, i8);
+    dyncfg_heat_pwm  = atoi(value_substr.c_str());
 
-      value_substr = value.substring(i8 + 1);
-      adjust_interval   = atoi(value_substr.c_str());
+    value_substr = value.substring(i8 + 1);
+    adjust_interval   = atoi(value_substr.c_str());
 
-      last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
+    last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
 
-      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
+    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
 
-      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
-      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'dyncfg_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,dyncfg_cool_pot=0,heat_step=1,dyncfg_heat_pwm=0,adjust_interval=20'
+    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
+    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'dyncfg_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,dyncfg_cool_pot=0,heat_step=1,dyncfg_heat_pwm=0,adjust_interval=20'
 
-      // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
-      // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
-      // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
-
-    }
-
+    // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
+    // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
+    // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
+  }
   return true;
 }
 
 bool PulseLowHandler(const HomieRange& range, const String& value) {
   if (value != "true" ) return false;
 
-// ....   -t 'homie/dev00x/winecooler/rst_other/set' -m 'true'
+  // ....   -t 'homie/dev00x/winecooler/rst_other/set' -m 'true'
 
   digitalWrite(PIN_RST_OTHER, LOW);
   winecoolerNode.setProperty("rst_other").send(value);
@@ -281,11 +291,11 @@ void setup() {
   //3.0.12  - 20251121 add I2C display, using https://github.com/olikraus/U8g2_Arduino (uses pins D1 and D2, which are the Wemos D1 mini pins for SCL and SDA respectively )
   //                   use pin D7 in stead of D1 for rst_other (using D3 or D4 failed, arduino's forever resetting)
   
-  Homie.getLogger() << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
-  Homie.getLogger() << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
-  Homie.getLogger() << "ESP FreeSketchSpace   : " << ESP.getFreeSketchSpace() << endl;
-  Homie.getLogger() << "ESP FreeHeap          : " << ESP.getFreeHeap() << endl;
-  Homie.getLogger() << "ESP HeapFragmentation : " << ESP.getHeapFragmentation() << endl;
+  Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
+  Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
+  Serial << "ESP FreeSketchSpace   : " << ESP.getFreeSketchSpace() << endl;
+  Serial << "ESP FreeHeap          : " << ESP.getFreeHeap() << endl;
+  Serial << "ESP HeapFragmentation : " << ESP.getHeapFragmentation() << endl;
   
   Homie.setLoopFunction(loopHandler);
   winecoolerNode.advertise("data").setName("Data").setDatatype("String");
@@ -297,6 +307,7 @@ void setup() {
   cool_maxSetting.setDefaultValue(DEFAULT_COOL_MAX).setValidator([] (long candidate) { return candidate >= 75; });
   txt_temp0Setting.setDefaultValue("");
   txt_temp1Setting.setDefaultValue("");
+  txt_2nd_lineSetting.setDefaultValue(false);
   
   pot.begin(CS,INC,UD); // Initialize Digital potentiometer X9C
   sensors.begin();      // Initialize Digital thermometer DS18B20
@@ -320,22 +331,24 @@ void setup() {
   // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
 
   u8g2.begin(); // OLED display
-
+  u8g2.setFont(u8g2_font_ncenB10_tr);
+  
   Homie.setup();
 
+  setpoint             = setpointSetting.get();
+  hysteresis           = hysteresisSetting.get();
+  adjust_interval      = adjust_intervalSetting.get();
+  cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
+  cool_pot             = cool_max;               // initial value of cool_pot
+  updateDisplayArea_ty = (txt_2nd_lineSetting.get() ?  4 :  0 );
+  drawStr_ty           = (txt_2nd_lineSetting.get() ? 48 : 24 );
+  
 }
 
 void loop() {
 
-  if (get_settings == true) {
-    setpoint        = setpointSetting.get();
-    hysteresis      = hysteresisSetting.get();
-    adjust_interval = adjust_intervalSetting.get();
-    cool_max        = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
-    cool_pot        = cool_max;               // initial value of cool_pot
-    get_settings    = false;
-  }
-
+  timeClient.update();
+  
   if (millis() - last_publish >= publish_intervalSetting.get() * 1000UL || last_publish == 0) {
 
     sensors.requestTemperatures();        // Send the command to get temperatures, takes 1 second.
@@ -345,8 +358,11 @@ void loop() {
     
     cool_level = analogRead(PIN_ANALOG);
 
-    PublishString =  "\"heap_free\": "+       String(ESP.getFreeHeap())+",";
+    PublishString =  "\"time\": "+            String(timeClient.getEpochTime())+",";
+    PublishString += "\"heap_free\": "+       String(ESP.getFreeHeap())+",";
     PublishString += "\"heap_frag\": "+       String(ESP.getHeapFragmentation())+",";
+    PublishString += "\"mqtt_discon\": "+     String(mqtt_discon)+",";
+    PublishString += "\"wifi_discon\": "+     String(wifi_discon)+",";
     PublishString += "\"adjust_interval\": "+ String(adjust_interval)+",";
     PublishString += "\"cool_level\": "+      String(cool_level)+",";
     PublishString += "\"cool_max\": "+        String(cool_max)+",";
@@ -368,18 +384,17 @@ void loop() {
     strcpy(txt_temp1, txt_temp1Setting.get());
     char empty_string[] = "";
 
-    u8g2.firstPage();
-    do {
-      u8g2.setFont(u8g2_font_ncenB12_tr);
-      if (strcmp(txt_temp0,empty_string) > 0 ) {
-        u8g2.drawStr(0,24,txt_temp0);
-        u8g2.drawStr(0,48,temp0_String.c_str());
-      }
-      if (strcmp(txt_temp1,empty_string) > 0 ) {
-      u8g2.drawStr(64,24,txt_temp1);
-      u8g2.drawStr(64,48,temp1_String.c_str());
-      }
-    } while ( u8g2.nextPage() );    
+    u8g2.clearBuffer();
+    if (strcmp(txt_temp0,empty_string) > 0 ) {
+      u8g2.drawStr(0, drawStr_ty,txt_temp0);
+      u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? temp0_String.c_str() : "--" ));
+    }
+    if (strcmp(txt_temp1,empty_string) > 0 ) {
+      u8g2.drawStr(64,drawStr_ty,txt_temp1);
+      u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? temp1_String.c_str() : "--" ));
+    }
+    //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height
+    u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.
 
     last_publish = millis();
     }
