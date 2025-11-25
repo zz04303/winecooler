@@ -19,7 +19,7 @@ const double   DEFAULT_TEMP_SETPOINT    = 0.0;
 const double   DEFAULT_TEMP_HYSTERESIS  = 0.2;
 
 unsigned long  last_publish = 0;
-String         PublishString;
+char           PubStr[500];
 
 int            publish_interval;
 float          setpoint;
@@ -80,8 +80,6 @@ int           heat_step       = 1;
 
 // OLED display
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
-String temp0_String;
-String temp1_String;
 int    updateDisplayArea_ty;
 int    drawStr_ty;
 
@@ -99,16 +97,13 @@ HomieSetting<long>              cool_maxSetting("cool_max"        , "max cool po
 HomieSetting<const char*>      txt_temp0Setting("txt_temp0"       , "display txt_temp0");
 HomieSetting<const char*>      txt_temp1Setting("txt_temp1"       , "display txt_temp1");
 HomieSetting<bool>          txt_2nd_lineSetting("txt_2nd_line"    , "display txt on 2nd line");
-char txt_temp0[20];
-char txt_temp1[20];
 
 void loopHandler() {
+  
+  if (millis() - last_publish >= publish_interval * 1000UL || last_publish == 0) {
+    
+    winecoolerNode.setProperty("data").send(PubStr);
 
-  if (millis() - last_publish >= publish_intervalSetting.get() * 1000UL || last_publish == 0) {
-    
-    winecoolerNode.setProperty("data").send("{"+String(PublishString)+"}");
-    
-    // last_publish = millis();  // NIET hier maar in loop() function 
   }
 }
 
@@ -117,15 +112,15 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
     case HomieEventType::STANDALONE_MODE:
       Serial << "Standalone mode started" << endl;
       break;
-    case HomieEventType::CONFIGURATION_MODE:
+      case HomieEventType::CONFIGURATION_MODE:
       Serial << "Configuration mode started" << endl;
       break;
     case HomieEventType::NORMAL_MODE:
       Serial << "Normal mode started" << endl;
       break;
     case HomieEventType::OTA_STARTED:
-      Serial << "OTA started" << endl;
-      break;
+    Serial << "OTA started" << endl;
+    break;
     case HomieEventType::OTA_PROGRESS:
       Serial << "OTA progress, " << event.sizeDone << "/" << event.sizeTotal << endl;
       break;
@@ -133,27 +128,27 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
       Serial << "OTA failed" << endl;
       break;
     case HomieEventType::OTA_SUCCESSFUL:
-      Serial << "OTA successful" << endl;
-      break;
+    Serial << "OTA successful" << endl;
+    break;
     case HomieEventType::ABOUT_TO_RESET:
-      Serial << "About to reset" << endl;
-      break;
+    Serial << "About to reset" << endl;
+    break;
     case HomieEventType::WIFI_CONNECTED:
-      Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
-      break;
+    Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
+    break;
     case HomieEventType::WIFI_DISCONNECTED:
-      Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << " count: " << wifi_discon << endl;
-      break;
+    Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << " count: " << wifi_discon << endl;
+    break;
     case HomieEventType::MQTT_READY:
-      Serial << "MQTT connected" << endl;
-      break;
+    Serial << "MQTT connected" << endl;
+    break;
     case HomieEventType::MQTT_DISCONNECTED:
-      mqtt_discon++;
-      Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << " count: " << mqtt_discon << endl;
-      break;
+    mqtt_discon++;
+    Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << " count: " << mqtt_discon << endl;
+    break;
     case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
-      // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
-      break;
+    // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
+    break;
     case HomieEventType::READY_TO_SLEEP:
       Serial << "Ready to sleep" << endl;
       break;
@@ -164,8 +159,8 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
   }
   
 
-bool DynConfigHandler(const HomieRange& range, const String& value) {
-  
+  bool DynConfigHandler(const HomieRange& range, const String& value) {
+    
   String         value_substr;
   
   winecoolerNode.setProperty("dyncfg").send(value);
@@ -180,38 +175,38 @@ bool DynConfigHandler(const HomieRange& range, const String& value) {
     int i6 = value.indexOf(',',i5+1);
     int i7 = value.indexOf(',',i6+1);
     int i8 = value.indexOf(',',i7+1);
-
+    
     value_substr = value.substring(0, i1);
     dyncfg_temp0     = atof(value_substr.c_str());
-  
+    
     value_substr = value.substring(i1 + 1, i2);
     setpoint          = atof(value_substr.c_str());
-
+    
     value_substr = value.substring(i2 + 1, i3);
     hysteresis        = atof(value_substr.c_str());
-
+    
     value_substr = value.substring(i3 + 1, i4);
     cool_step         = atoi(value_substr.c_str());
-
+    
     value_substr = value.substring(i4 + 1, i5);
     cool_max          = atoi(value_substr.c_str());
-
+    
     value_substr = value.substring(i5 + 1, i6);
     dyncfg_cool_pot  = atoi(value_substr.c_str());
-
+    
     value_substr = value.substring(i6 + 1, i7);
     heat_step         = atoi(value_substr.c_str());
 
     value_substr = value.substring(i7 + 1, i8);
     dyncfg_heat_pwm  = atoi(value_substr.c_str());
-
+    
     value_substr = value.substring(i8 + 1);
     adjust_interval   = atoi(value_substr.c_str());
 
     last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
-
+    
     // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
-
+    
     // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
     // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'dyncfg_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,dyncfg_cool_pot=0,heat_step=1,dyncfg_heat_pwm=0,adjust_interval=20'
 
@@ -224,7 +219,7 @@ bool DynConfigHandler(const HomieRange& range, const String& value) {
 
 bool PulseLowHandler(const HomieRange& range, const String& value) {
   if (value != "true" ) return false;
-
+  
   // ....   -t 'homie/dev00x/winecooler/rst_other/set' -m 'true'
 
   digitalWrite(PIN_RST_OTHER, LOW);
@@ -232,7 +227,7 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
   Serial << "PIN_RST_OTHER is pulsed LOW" <<endl;
   delay(100);
   digitalWrite(PIN_RST_OTHER, HIGH);
-
+  
   return true;
 }
 
@@ -286,7 +281,7 @@ void setup() {
   //                   DS18B20 sensors set resolution explicitly 
   //3.0.9   - 20250416 Redo with corrrect repo https://github.com/zz04303/homie-esp8266.git#erik  (met achter hash de naam van de branch 'erik' = 'develop' + 2 commits)
   //3.0.10  - 20251116 add pulse low to be used for rsetting an other arduino via output pin D1 to be connected to RST in on the other arduino
-  //                   add cool_max to PublishString
+  //                   add cool_max to PubStr
   //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyncfg' 
   //3.0.12  - 20251121 add I2C display, using https://github.com/olikraus/U8g2_Arduino (uses pins D1 and D2, which are the Wemos D1 mini pins for SCL and SDA respectively )
   //                   use pin D7 in stead of D1 for rst_other (using D3 or D4 failed, arduino's forever resetting)
@@ -315,21 +310,21 @@ void setup() {
   sensors.getAddress(addr_temp1, 1);
   sensors.setResolution(addr_temp0,11); // The resolution of the temperature sensor is user-configurable to 9, 10, 11, or 12 bits, corresponding to increments of 0.5°C, 0.25°C, 0.125°C, and 0.0625°C, respectively.
   sensors.setResolution(addr_temp1,11); // The default resolution at power-up is 12-bit (ref:  https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf )
-
+  
   Homie.onEvent(onHomieEvent);
-
+  
   Homie.getMqttClient().setKeepAlive(75);  //  Zie o.a. https://gitter.im/homie-iot/ESP8266?at=60a3ca03b10fc85b56a3029e  en
-                                           //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
-                                           //           https://github.com/homieiot/homie-esp8266/issues/340
-                                           //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
-
+  //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
+  //           https://github.com/homieiot/homie-esp8266/issues/340
+  //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
+  
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
   digitalWrite(PIN_RST_OTHER, HIGH);
   
   winecoolerNode.advertise("dyncfg").setName("DynConfig").setDatatype("boolean").settable(DynConfigHandler);  
   // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
-
+  
   u8g2.begin(); // OLED display
   u8g2.setFont(u8g2_font_ncenB10_tr);
   
@@ -338,6 +333,7 @@ void setup() {
   setpoint             = setpointSetting.get();
   hysteresis           = hysteresisSetting.get();
   adjust_interval      = adjust_intervalSetting.get();
+  publish_interval     = publish_intervalSetting.get();
   cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
   cool_pot             = cool_max;               // initial value of cool_pot
   updateDisplayArea_ty = (txt_2nd_lineSetting.get() ?  4 :  0 );
@@ -346,52 +342,58 @@ void setup() {
 }
 
 void loop() {
-
+  
   timeClient.update();
   
-  if (millis() - last_publish >= publish_intervalSetting.get() * 1000UL || last_publish == 0) {
-
+  if (millis() - last_publish >= publish_interval * 1000UL || last_publish == 0) {
+    
     sensors.requestTemperatures();        // Send the command to get temperatures, takes 1 second.
     temp0 = sensors.getTempCByIndex(0);   // winecooler inside temp
     if (dyncfg_temp0 != 0.0) temp0 = dyncfg_temp0;
     temp1 = sensors.getTempCByIndex(1);  // winecooler outside temp
     
     cool_level = analogRead(PIN_ANALOG);
-
-    PublishString =  "\"time\": "+            String(timeClient.getEpochTime())+",";
-    PublishString += "\"heap_free\": "+       String(ESP.getFreeHeap())+",";
-    PublishString += "\"heap_frag\": "+       String(ESP.getHeapFragmentation())+",";
-    PublishString += "\"mqtt_discon\": "+     String(mqtt_discon)+",";
-    PublishString += "\"wifi_discon\": "+     String(wifi_discon)+",";
-    PublishString += "\"adjust_interval\": "+ String(adjust_interval)+",";
-    PublishString += "\"cool_level\": "+      String(cool_level)+",";
-    PublishString += "\"cool_max\": "+        String(cool_max)+",";
-    PublishString += "\"cool_pot\": "+        String(cool_pot)+",";
-    PublishString += "\"cool_step\": "+       String(cool_step)+",";
-    PublishString += "\"heat_pwm\": "+        String(heat_pwm)+",";
-    PublishString += "\"heat_step\": "+       String(heat_step)+",";
-    PublishString += "\"hysteresis\": "+      String(hysteresis)+",";
-    PublishString += "\"publish_interval\": "+String(publish_intervalSetting.get())+",";
-    PublishString += "\"setpoint\": "+        String(setpoint)+",";
-    PublishString += "\"temp0\": "+           String(temp0)+",";
-    PublishString += "\"temp1\": "+           String(temp1); //no trailing comma!!
     
-    Serial << "PublishString=" << PublishString << endl;
+    char PubStr_temp[10];
+    strcpy(PubStr,"{");
+    strcat(PubStr,"\"time\": "            );itoa(timeClient.getEpochTime() ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"heap_free\": "       );itoa(ESP.getFreeHeap()         ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"heap_frag\": "       );itoa(ESP.getHeapFragmentation(),PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"mqtt_discon\": "     );itoa(mqtt_discon               ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"wifi_discon\": "     );itoa(wifi_discon               ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"adjust_interval\": " );itoa(adjust_interval           ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"cool_level\": "      );itoa(cool_level                ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"cool_max\": "        );itoa(cool_max                  ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"cool_pot\": "        );itoa(cool_pot                  ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"cool_step\": "       );itoa(cool_step                 ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"heat_pwm\": "        );itoa(heat_pwm                  ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"heat_step\": "       );itoa(heat_step                 ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"hysteresis\": "      );dtostrf(hysteresis, 4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"publish_interval\": ");itoa(publish_interval          ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"setpoint\": "        );dtostrf(setpoint, 4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"temp0\": "           );dtostrf(temp0,    4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"temp1\": "           );dtostrf(temp1,    4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);  //no trailing comma!!
+    strcat(PubStr,"}");
 
-    temp0_String = String(temp0);
-    temp1_String = String(temp1);
-    strcpy(txt_temp0, txt_temp0Setting.get());
-    strcpy(txt_temp1, txt_temp1Setting.get());
-    char empty_string[] = "";
-
+    Serial << "PubStr=" << PubStr << endl;
+        
+    char txt_temp0[20];
+    char txt_temp1[20];
+    
     u8g2.clearBuffer();
-    if (strcmp(txt_temp0,empty_string) > 0 ) {
+    strcpy(txt_temp0, txt_temp0Setting.get());
+    if (strcmp(txt_temp0,"") > 0 ) {
+      strcat(txt_temp0," ");
       u8g2.drawStr(0, drawStr_ty,txt_temp0);
-      u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? temp0_String.c_str() : "--" ));
+      dtostrf(temp0,4,1,PubStr_temp);
+      u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "--" ));
     }
-    if (strcmp(txt_temp1,empty_string) > 0 ) {
+    strcpy(txt_temp1, txt_temp1Setting.get());
+    if (strcmp(txt_temp1,"") > 0 ) {
+      strcat(txt_temp1," ");
       u8g2.drawStr(64,drawStr_ty,txt_temp1);
-      u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? temp1_String.c_str() : "--" ));
+      dtostrf(temp1,4,1,PubStr_temp);
+      u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "--" ));
     }
     //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height
     u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.
