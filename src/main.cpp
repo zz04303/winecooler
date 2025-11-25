@@ -6,6 +6,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <U8g2lib.h>
+#include <ArduinoJson.h>
 
 WiFiUDP ntpUDP;
 // You can specify the time server pool and the offset (in seconds, can be
@@ -82,6 +83,9 @@ int           heat_step       = 1;
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
 int    updateDisplayArea_ty;
 int    drawStr_ty;
+
+// dyncfg json
+StaticJsonDocument<256> dyncfg_json;
 
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
@@ -161,54 +165,29 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
 
   bool DynConfigHandler(const HomieRange& range, const String& value) {
     
-  String         value_substr;
-  
   winecoolerNode.setProperty("dyncfg").send(value);
   Serial << "dynamic re-config value='" << value << "'" << endl;
+
+  DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
+
+  if (error) {
+    Serial << "deserializeJson() failed: " << error.f_str() << endl;
+    return false;
+  } else {
+
+    dyncfg_temp0    = dyncfg_json["dyncfg_temp0"]; // 9
+    setpoint        = dyncfg_json["setpoint"]; // 11.2
+    hysteresis      = dyncfg_json["hysteresis"]; // 0.4
+    cool_step       = dyncfg_json["cool_step"]; // 1
+    cool_max        = dyncfg_json["cool_max"]; // 75
+    dyncfg_cool_pot = dyncfg_json["dyncfg_cool_pot"]; // 0
+    heat_step       = dyncfg_json["heat_step"]; // 1
+    dyncfg_heat_pwm = dyncfg_json["dyncfg_heat_pwm"]; // 0
+    adjust_interval = dyncfg_json["adjust_interval"]; // 20
   
-  if (value != "") {
-    int i1 = value.indexOf(',');
-    int i2 = value.indexOf(',',i1+1);
-    int i3 = value.indexOf(',',i2+1);
-    int i4 = value.indexOf(',',i3+1);
-    int i5 = value.indexOf(',',i4+1);
-    int i6 = value.indexOf(',',i5+1);
-    int i7 = value.indexOf(',',i6+1);
-    int i8 = value.indexOf(',',i7+1);
-    
-    value_substr = value.substring(0, i1);
-    dyncfg_temp0     = atof(value_substr.c_str());
-    
-    value_substr = value.substring(i1 + 1, i2);
-    setpoint          = atof(value_substr.c_str());
-    
-    value_substr = value.substring(i2 + 1, i3);
-    hysteresis        = atof(value_substr.c_str());
-    
-    value_substr = value.substring(i3 + 1, i4);
-    cool_step         = atoi(value_substr.c_str());
-    
-    value_substr = value.substring(i4 + 1, i5);
-    cool_max          = atoi(value_substr.c_str());
-    
-    value_substr = value.substring(i5 + 1, i6);
-    dyncfg_cool_pot  = atoi(value_substr.c_str());
-    
-    value_substr = value.substring(i6 + 1, i7);
-    heat_step         = atoi(value_substr.c_str());
-
-    value_substr = value.substring(i7 + 1, i8);
-    dyncfg_heat_pwm  = atoi(value_substr.c_str());
-    
-    value_substr = value.substring(i8 + 1);
-    adjust_interval   = atoi(value_substr.c_str());
-
     last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
     
-    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '9.0,11.2,0.4,1,75,0,1,0,20'    <==== enige juiste formaat, hieronder paar voorbeelden t.b.v juiste positional parm in kunnen vullen.
-    
-    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '              9.0,         11.2,           0.4,          1,         75,                 0,          1,                 0,                20'
-    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m 'dyncfg_temp0=9.0,setpoint=11.2,hysteresis=0.4,cool_step=1,cool_max=75,dyncfg_cool_pot=0,heat_step=1,dyncfg_heat_pwm=0,adjust_interval=20'
+    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '{"dyncfg_temp0": 9.0,"setpoint": 11.2,"hysteresis": 0.4,"cool_step": 1,"cool_max": 75,"dyncfg_cool_pot": 0,"heat_step": 1,"dyncfg_heat_pwm": 0,"adjust_interval": 20}'
 
     // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
     // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
@@ -235,7 +214,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.12");
+  Homie_setFirmware("winecooler", "3.0.13");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -285,6 +264,8 @@ void setup() {
   //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyncfg' 
   //3.0.12  - 20251121 add I2C display, using https://github.com/olikraus/U8g2_Arduino (uses pins D1 and D2, which are the Wemos D1 mini pins for SCL and SDA respectively )
   //                   use pin D7 in stead of D1 for rst_other (using D3 or D4 failed, arduino's forever resetting)
+  //3.0.13  - 20251125 publish string is C code only, no String declaration (capital S). Same for display string.
+  //                   dyncfg input via json: https://arduinojson.org/v6/example/parser/                   
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -293,7 +274,7 @@ void setup() {
   Serial << "ESP HeapFragmentation : " << ESP.getHeapFragmentation() << endl;
   
   Homie.setLoopFunction(loopHandler);
-  winecoolerNode.advertise("data").setName("Data").setDatatype("String");
+  winecoolerNode.advertise("data").setName("Data").setDatatype("json");
 
   publish_intervalSetting.setDefaultValue(DEFAULT_PUBLISH_INTERVAL).setValidator([] (long candidate) { return candidate > 0; });
   setpointSetting.setDefaultValue(DEFAULT_TEMP_SETPOINT).setValidator([] (double candidate) { return candidate >= 0;   });
@@ -370,9 +351,9 @@ void loop() {
     strcat(PubStr,"\"heat_step\": "       );itoa(heat_step                 ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
     strcat(PubStr,"\"hysteresis\": "      );dtostrf(hysteresis, 4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
     strcat(PubStr,"\"publish_interval\": ");itoa(publish_interval          ,PubStr_temp,10);strcat(PubStr,PubStr_temp);strcat(PubStr,",");
-    strcat(PubStr,"\"setpoint\": "        );dtostrf(setpoint, 4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
-    strcat(PubStr,"\"temp0\": "           );dtostrf(temp0,    4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
-    strcat(PubStr,"\"temp1\": "           );dtostrf(temp1,    4, 2         ,PubStr_temp   );strcat(PubStr,PubStr_temp);  //no trailing comma!!
+    strcat(PubStr,"\"setpoint\": "        );dtostrf(setpoint,   4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"temp0\": "           );dtostrf(temp0,      4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
+    strcat(PubStr,"\"temp1\": "           );dtostrf(temp1,      4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);  //no trailing comma!!
     strcat(PubStr,"}");
 
     Serial << "PubStr=" << PubStr << endl;
