@@ -83,6 +83,7 @@ int           heat_step       = 1;
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); // Pins  D1 = SCL, D2 = SDA standaard Wemos D1 Mini
 int    updateDisplayArea_ty;
 int    drawStr_ty;
+bool   toggle_display = true;
 
 // dyncfg json
 StaticJsonDocument<256> dyncfg_json;
@@ -116,15 +117,15 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
     case HomieEventType::STANDALONE_MODE:
       Serial << "Standalone mode started" << endl;
       break;
-      case HomieEventType::CONFIGURATION_MODE:
+    case HomieEventType::CONFIGURATION_MODE:
       Serial << "Configuration mode started" << endl;
       break;
     case HomieEventType::NORMAL_MODE:
       Serial << "Normal mode started" << endl;
       break;
     case HomieEventType::OTA_STARTED:
-    Serial << "OTA started" << endl;
-    break;
+      Serial << "OTA started" << endl;
+      break;
     case HomieEventType::OTA_PROGRESS:
       Serial << "OTA progress, " << event.sizeDone << "/" << event.sizeTotal << endl;
       break;
@@ -132,27 +133,27 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
       Serial << "OTA failed" << endl;
       break;
     case HomieEventType::OTA_SUCCESSFUL:
-    Serial << "OTA successful" << endl;
-    break;
+      Serial << "OTA successful" << endl;
+      break;
     case HomieEventType::ABOUT_TO_RESET:
-    Serial << "About to reset" << endl;
-    break;
+      Serial << "About to reset" << endl;
+      break;
     case HomieEventType::WIFI_CONNECTED:
-    Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
-    break;
+      Serial << "Wi-Fi connected, IP: " << event.ip << ", gateway: " << event.gateway << ", mask: " << event.mask << endl;
+      break;
     case HomieEventType::WIFI_DISCONNECTED:
-    Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << " count: " << wifi_discon << endl;
-    break;
+      Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << " count: " << wifi_discon << endl;
+      break;
     case HomieEventType::MQTT_READY:
-    Serial << "MQTT connected" << endl;
-    break;
+      Serial << "MQTT connected" << endl;
+      break;
     case HomieEventType::MQTT_DISCONNECTED:
-    mqtt_discon++;
-    Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << " count: " << mqtt_discon << endl;
-    break;
+      mqtt_discon++;
+      Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << " count: " << mqtt_discon << endl;
+      break;
     case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
-    // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
-    break;
+      // Serial << "MQTT packet acknowledged, packetId: " << event.packetId << endl;
+      break;
     case HomieEventType::READY_TO_SLEEP:
       Serial << "Ready to sleep" << endl;
       break;
@@ -214,7 +215,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.13");
+  Homie_setFirmware("winecooler", "3.0.14");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -264,8 +265,10 @@ void setup() {
   //3.0.11  - 20251118 change mqtt setup for topic 'testing' to regular Homie Handler with topic 'dyncfg' 
   //3.0.12  - 20251121 add I2C display, using https://github.com/olikraus/U8g2_Arduino (uses pins D1 and D2, which are the Wemos D1 mini pins for SCL and SDA respectively )
   //                   use pin D7 in stead of D1 for rst_other (using D3 or D4 failed, arduino's forever resetting)
+  //                   https://www.tinytronics.nl/en/displays/oled/1.3-inch-oled-display-128*64-pixels-blue-i2c
   //3.0.13  - 20251125 publish string is C code only, no String declaration (capital S). Same for display string.
-  //                   dyncfg input via json: https://arduinojson.org/v6/example/parser/                   
+  //                   dyncfg input via json: https://arduinojson.org/v6/example/parser/   
+  //3.0.14  - 20251126 toggle display small large font with same freq as publish interval                 
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -294,10 +297,10 @@ void setup() {
   
   Homie.onEvent(onHomieEvent);
   
-  Homie.getMqttClient().setKeepAlive(75);  //  Zie o.a. https://gitter.im/homie-iot/ESP8266?at=60a3ca03b10fc85b56a3029e  en
-  //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
-  //           https://github.com/homieiot/homie-esp8266/issues/340
-  //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
+  Homie.getMqttClient().setKeepAlive(75); //  Zie o.a. https://gitter.im/homie-iot/ESP8266?at=60a3ca03b10fc85b56a3029e  en
+                                          //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
+                                          //           https://github.com/homieiot/homie-esp8266/issues/340
+                                          //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
   
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
@@ -307,8 +310,7 @@ void setup() {
   // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
   
   u8g2.begin(); // OLED display
-  u8g2.setFont(u8g2_font_ncenB10_tr);
-  
+    
   Homie.setup();
 
   setpoint             = setpointSetting.get();
@@ -318,7 +320,8 @@ void setup() {
   cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
   cool_pot             = cool_max;               // initial value of cool_pot
   updateDisplayArea_ty = (txt_2nd_lineSetting.get() ?  4 :  0 );
-  drawStr_ty           = (txt_2nd_lineSetting.get() ? 48 : 24 );
+  // drawStr_ty           = (txt_2nd_lineSetting.get() ? 48 : 24 );
+  drawStr_ty           = (txt_2nd_lineSetting.get() ? 64 : 32 );
   
 }
 
@@ -361,23 +364,41 @@ void loop() {
     char txt_temp0[20];
     char txt_temp1[20];
     
-    u8g2.clearBuffer();
-    strcpy(txt_temp0, txt_temp0Setting.get());
-    if (strcmp(txt_temp0,"") > 0 ) {
-      strcat(txt_temp0," ");
-      u8g2.drawStr(0, drawStr_ty,txt_temp0);
-      dtostrf(temp0,4,1,PubStr_temp);
-      u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "--" ));
+    u8g2.clearBuffer(); // OLED display
+
+    if (toggle_display) {   //small font with name details
+      u8g2.setFont(u8g2_font_ncenB10_tr);
+      strcpy(txt_temp0, txt_temp0Setting.get());
+      if (strcmp(txt_temp0,"") > 0 ) {
+        strcat(txt_temp0," ");
+        u8g2.drawStr(0, drawStr_ty,txt_temp0);
+        dtostrf(temp0,4,1,PubStr_temp);
+        u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
+      }
+      strcpy(txt_temp1, txt_temp1Setting.get());
+      if (strcmp(txt_temp1,"") > 0 ) {
+        strcat(txt_temp1," ");
+        u8g2.drawStr(64,drawStr_ty,txt_temp1);
+        dtostrf(temp1,4,1,PubStr_temp);
+        u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
+      }
+      toggle_display = false;
+    } else {           // large font numbers only
+
+      u8g2.setFont(u8g2_font_ncenB24_tr);
+      if (strcmp(txt_temp0Setting.get(),"") > 0 ) {
+        dtostrf(temp0,4,0,PubStr_temp);
+        u8g2.drawStr(0, drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
+      }
+      if (strcmp(txt_temp1Setting.get(),"") > 0 ) {
+        dtostrf(temp1,4,0,PubStr_temp);
+        u8g2.drawStr(64,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
+      }
+      toggle_display = true;
     }
-    strcpy(txt_temp1, txt_temp1Setting.get());
-    if (strcmp(txt_temp1,"") > 0 ) {
-      strcat(txt_temp1," ");
-      u8g2.drawStr(64,drawStr_ty,txt_temp1);
-      dtostrf(temp1,4,1,PubStr_temp);
-      u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "--" ));
-    }
+    
     //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height
-    u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.
+    u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.    
 
     last_publish = millis();
     }
