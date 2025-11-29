@@ -165,35 +165,35 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
   
 
   bool DynConfigHandler(const HomieRange& range, const String& value) {
+
+    winecoolerNode.setProperty("dyncfg").send(value);
+    Serial << "dynamic re-config value='" << value << "'" << endl;
+
+    DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
+
+    if (error) {
+      Serial << "deserializeJson() failed: " << error.f_str() << endl;
+      return false;
+    } else {
+
+      dyncfg_temp0    = dyncfg_json["dyncfg_temp0"]; // 9
+      setpoint        = dyncfg_json["setpoint"]; // 11.2
+      hysteresis      = dyncfg_json["hysteresis"]; // 0.4
+      cool_step       = dyncfg_json["cool_step"]; // 1
+      cool_max        = dyncfg_json["cool_max"]; // 75
+      dyncfg_cool_pot = dyncfg_json["dyncfg_cool_pot"]; // 0
+      heat_step       = dyncfg_json["heat_step"]; // 1
+      dyncfg_heat_pwm = dyncfg_json["dyncfg_heat_pwm"]; // 0
+      adjust_interval = dyncfg_json["adjust_interval"]; // 20
     
-  winecoolerNode.setProperty("dyncfg").send(value);
-  Serial << "dynamic re-config value='" << value << "'" << endl;
+      last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
+      
+      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '{"dyncfg_temp0": 9.0,"setpoint": 11.2,"hysteresis": 0.4,"cool_step": 1,"cool_max": 75,"dyncfg_cool_pot": 0,"heat_step": 1,"dyncfg_heat_pwm": 0,"adjust_interval": 20}'
 
-  DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
-
-  if (error) {
-    Serial << "deserializeJson() failed: " << error.f_str() << endl;
-    return false;
-  } else {
-
-    dyncfg_temp0    = dyncfg_json["dyncfg_temp0"]; // 9
-    setpoint        = dyncfg_json["setpoint"]; // 11.2
-    hysteresis      = dyncfg_json["hysteresis"]; // 0.4
-    cool_step       = dyncfg_json["cool_step"]; // 1
-    cool_max        = dyncfg_json["cool_max"]; // 75
-    dyncfg_cool_pot = dyncfg_json["dyncfg_cool_pot"]; // 0
-    heat_step       = dyncfg_json["heat_step"]; // 1
-    dyncfg_heat_pwm = dyncfg_json["dyncfg_heat_pwm"]; // 0
-    adjust_interval = dyncfg_json["adjust_interval"]; // 20
-  
-    last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
-    
-    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '{"dyncfg_temp0": 9.0,"setpoint": 11.2,"hysteresis": 0.4,"cool_step": 1,"cool_max": 75,"dyncfg_cool_pot": 0,"heat_step": 1,"dyncfg_heat_pwm": 0,"adjust_interval": 20}'
-
-    // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
-    // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
-    // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
-  }
+      // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
+      // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
+      // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
+    }
   return true;
 }
 
@@ -205,7 +205,7 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
   digitalWrite(PIN_RST_OTHER, LOW);
   winecoolerNode.setProperty("rst_other").send(value);
   Serial << "PIN_RST_OTHER is pulsed LOW" <<endl;
-  delay(100);
+  delay(1); // this is a blocking delay, but very short
   digitalWrite(PIN_RST_OTHER, HIGH);
   
   return true;
@@ -215,7 +215,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.14");
+  Homie_setFirmware("winecooler", "3.0.17");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -269,6 +269,9 @@ void setup() {
   //3.0.13  - 20251125 publish string is C code only, no String declaration (capital S). Same for display string.
   //                   dyncfg input via json: https://arduinojson.org/v6/example/parser/   
   //3.0.14  - 20251126 toggle display small large font with same freq as publish interval                 
+  //3.0.15  - 20251129 temp sensors.setWaitForConversion(false) async. ResetOther decrease pulse duration to 1 ms.                 
+  //3.0.16  - 20251129 temp move 'sensors.requestTemperatures()'back to loop section                 
+  //3.0.17  - 20251129 revert temp async mode                 
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -294,6 +297,7 @@ void setup() {
   sensors.getAddress(addr_temp1, 1);
   sensors.setResolution(addr_temp0,11); // The resolution of the temperature sensor is user-configurable to 9, 10, 11, or 12 bits, corresponding to increments of 0.5°C, 0.25°C, 0.125°C, and 0.0625°C, respectively.
   sensors.setResolution(addr_temp1,11); // The default resolution at power-up is 12-bit (ref:  https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf )
+  // sensors.setWaitForConversion(false); // async mode, needs more testing, one of two sensors did not always return data
   
   Homie.onEvent(onHomieEvent);
   
@@ -301,7 +305,7 @@ void setup() {
                                           //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
                                           //           https://github.com/homieiot/homie-esp8266/issues/340
                                           //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
-  
+                                          
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
   digitalWrite(PIN_RST_OTHER, HIGH);
@@ -310,9 +314,9 @@ void setup() {
   // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
   
   u8g2.begin(); // OLED display
-    
+  
   Homie.setup();
-
+  
   setpoint             = setpointSetting.get();
   hysteresis           = hysteresisSetting.get();
   adjust_interval      = adjust_intervalSetting.get();
@@ -320,7 +324,6 @@ void setup() {
   cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
   cool_pot             = cool_max;               // initial value of cool_pot
   updateDisplayArea_ty = (txt_2nd_lineSetting.get() ?  4 :  0 );
-  // drawStr_ty           = (txt_2nd_lineSetting.get() ? 48 : 24 );
   drawStr_ty           = (txt_2nd_lineSetting.get() ? 64 : 32 );
   
 }
@@ -391,6 +394,7 @@ void loop() {
         u8g2.drawStr(0, drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
       }
       if (strcmp(txt_temp1Setting.get(),"") > 0 ) {
+        u8g2.setFont(u8g2_font_ncenB18_tr);
         dtostrf(temp1,4,0,PubStr_temp);
         u8g2.drawStr(64,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
       }
