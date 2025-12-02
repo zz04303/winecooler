@@ -105,9 +105,7 @@ HomieSetting<const char*>      txt_temp1Setting("txt_temp1"       , "display txt
 HomieSetting<bool>          txt_2nd_lineSetting("txt_2nd_line"    , "display txt on 2nd line");
 
 void loopHandler() {
-    
-  PubPacketId = winecoolerNode.setProperty("data").send(PubStr);
-
+  // empty
 }
 
 void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie-esp8266/docs/stable/advanced-usage/events/
@@ -158,39 +156,39 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
     case HomieEventType::SENDING_STATISTICS:
       Serial << "Sending statistics" << endl;
       break;
-    }
   }
+}
   
 
-  bool DynConfigHandler(const HomieRange& range, const String& value) {
+bool DynConfigHandler(const HomieRange& range, const String& value) {
+  
+  winecoolerNode.setProperty("dyncfg").send(value);
+  Serial << "dynamic re-config value='" << value << "'" << endl;
+  
+  DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
 
-    winecoolerNode.setProperty("dyncfg").send(value);
-    Serial << "dynamic re-config value='" << value << "'" << endl;
-
-    DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
-
-    if (error) {
-      Serial << "deserializeJson() failed: " << error.f_str() << endl;
-      return false;
-    } else {
-
-      dyncfg_temp0    = dyncfg_json["dyncfg_temp0"]; // 9
-      setpoint        = dyncfg_json["setpoint"]; // 11.2
-      hysteresis      = dyncfg_json["hysteresis"]; // 0.4
-      cool_step       = dyncfg_json["cool_step"]; // 1
-      cool_max        = dyncfg_json["cool_max"]; // 75
-      dyncfg_cool_pot = dyncfg_json["dyncfg_cool_pot"]; // 0
-      heat_step       = dyncfg_json["heat_step"]; // 1
-      dyncfg_heat_pwm = dyncfg_json["dyncfg_heat_pwm"]; // 0
-      adjust_interval = dyncfg_json["adjust_interval"]; // 20
+  if (error) {
+    Serial << "deserializeJson() failed: " << error.f_str() << endl;
+    return false;
+  } else {
     
-      last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
-      
-      // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '{"dyncfg_temp0": 9.0,"setpoint": 11.2,"hysteresis": 0.4,"cool_step": 1,"cool_max": 75,"dyncfg_cool_pot": 0,"heat_step": 1,"dyncfg_heat_pwm": 0,"adjust_interval": 20}'
-
-      // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
-      // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
-      // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
+    dyncfg_temp0    = dyncfg_json["dyncfg_temp0"]; // 9
+    setpoint        = dyncfg_json["setpoint"]; // 11.2
+    hysteresis      = dyncfg_json["hysteresis"]; // 0.4
+    cool_step       = dyncfg_json["cool_step"]; // 1
+    cool_max        = dyncfg_json["cool_max"]; // 75
+    dyncfg_cool_pot = dyncfg_json["dyncfg_cool_pot"]; // 0
+    heat_step       = dyncfg_json["heat_step"]; // 1
+    dyncfg_heat_pwm = dyncfg_json["dyncfg_heat_pwm"]; // 0
+    adjust_interval = dyncfg_json["adjust_interval"]; // 20
+    
+    last_adjust = 0; // forceer onmiddelijke adjust (eerste keer na restart device zal mogelijk niet direct reactie zijn, ivm millis<adjust_interval)
+    
+    // ....  -t 'homie/dev00x/winecooler/dyncfg/set' -m '{"dyncfg_temp0": 9.0,"setpoint": 11.2,"hysteresis": 0.4,"cool_step": 1,"cool_max": 75,"dyncfg_cool_pot": 0,"heat_step": 1,"dyncfg_heat_pwm": 0,"adjust_interval": 20}'
+    
+    // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
+    // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
+    // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
     }
   return true;
 }
@@ -199,7 +197,7 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
   if (value != "true" ) return false;
   
   // ....   -t 'homie/dev00x/winecooler/rst_other/set' -m 'true'
-
+  
   digitalWrite(PIN_RST_OTHER, LOW);
   winecoolerNode.setProperty("rst_other").send(value);
   Serial << "PIN_RST_OTHER is pulsed LOW" <<endl;
@@ -212,8 +210,8 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
 void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
-
-  Homie_setFirmware("winecooler", "3.0.18");
+  
+  Homie_setFirmware("winecooler", "3.0.19");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -272,6 +270,7 @@ void setup() {
   //3.0.17  - 20251129 revert temp async mode                 
   //3.0.18  - 20251130 temp async mode again, differently 
   //          20251201 Homie.loop() moved to inside publish_interval section, fixes lost publish messages                
+  //3.0.19  - 20251202 revert move Homie.loop(), publish to /data now inside publish_interval section. Empty loopHandler. 
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -281,7 +280,7 @@ void setup() {
   
   Homie.setLoopFunction(loopHandler);
   winecoolerNode.advertise("data").setName("Data").setDatatype("json");
-
+  
   publish_intervalSetting.setDefaultValue(DEFAULT_PUBLISH_INTERVAL).setValidator([] (long candidate) { return candidate > 0; });
   setpointSetting.setDefaultValue(DEFAULT_TEMP_SETPOINT).setValidator([] (double candidate) { return candidate >= 0;   });
   hysteresisSetting.setDefaultValue(DEFAULT_TEMP_HYSTERESIS).setValidator([] (double candidate) { return candidate >= 0.1; });
@@ -364,7 +363,7 @@ void loop() {
     strcat(PubStr,"}");
     
     PubPacketId = 0;
-    Homie.loop();
+    PubPacketId = winecoolerNode.setProperty("data").send(PubStr); // serial log will show "X setNodeProperty(): impossible now" when MQTT not connected
     Serial << timeClient.getFormattedTime() << " PubPacketId=" << PubPacketId << " PubStr=" << PubStr << endl;
     
     char txt_temp0[20];
@@ -392,7 +391,7 @@ void loop() {
       strcpy(txt_temp0,timeClient.getFormattedTime().c_str());
       strcat(txt_temp0," utc");
       u8g2.drawStr(0,drawStr_ty-18,txt_temp0);
-
+      
       toggle_display = false;
     } else {           // large font numbers only
       
@@ -420,12 +419,12 @@ void loop() {
     
     if(setpoint > 0.0 && temp0 > -85.00 && temp0 < 85.00 && adjust_interval != 0UL)   {    // temp0  +/- 85.00 or -127.00 are invalid (disconneted, wiring pull up resistor or very first measurement)
 
-
+      
       if (dyncfg_cool_pot != 0) {
         cool_pot = dyncfg_cool_pot;
         dyncfg_cool_pot = 0;
       };
-
+      
       if (dyncfg_heat_pwm != 0) {
         heat_pwm = dyncfg_heat_pwm;
         dyncfg_heat_pwm = 0;
@@ -459,8 +458,9 @@ void loop() {
     analogWrite(PIN_PWM, heat_pwm);            // BE AWARE, range from 0-1024 !!  
     }
 
-  last_adjust = millis();
+    last_adjust = millis();
   }
-
-
+  
+  Homie.loop();
+  
 }
