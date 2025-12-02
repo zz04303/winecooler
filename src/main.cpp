@@ -21,6 +21,7 @@ const double   DEFAULT_TEMP_HYSTERESIS  = 0.2;
 
 unsigned long  last_publish = 0;
 char           PubStr[500];
+unsigned long  PubPacketId = 0;
 
 int            publish_interval;
 float          setpoint;
@@ -104,12 +105,9 @@ HomieSetting<const char*>      txt_temp1Setting("txt_temp1"       , "display txt
 HomieSetting<bool>          txt_2nd_lineSetting("txt_2nd_line"    , "display txt on 2nd line");
 
 void loopHandler() {
-  
-  if (millis() - last_publish >= publish_interval * 1000UL || last_publish == 0) {
     
-    winecoolerNode.setProperty("data").send(PubStr);
+  PubPacketId = winecoolerNode.setProperty("data").send(PubStr);
 
-  }
 }
 
 void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie-esp8266/docs/stable/advanced-usage/events/
@@ -215,7 +213,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
 
-  Homie_setFirmware("winecooler", "3.0.17");
+  Homie_setFirmware("winecooler", "3.0.18");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -272,6 +270,8 @@ void setup() {
   //3.0.15  - 20251129 temp sensors.setWaitForConversion(false) async. ResetOther decrease pulse duration to 1 ms.                 
   //3.0.16  - 20251129 temp move 'sensors.requestTemperatures()'back to loop section                 
   //3.0.17  - 20251129 revert temp async mode                 
+  //3.0.18  - 20251130 temp async mode again, differently 
+  //          20251201 Homie.loop() moved to inside publish_interval section, fixes lost publish messages                
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -297,15 +297,15 @@ void setup() {
   sensors.getAddress(addr_temp1, 1);
   sensors.setResolution(addr_temp0,11); // The resolution of the temperature sensor is user-configurable to 9, 10, 11, or 12 bits, corresponding to increments of 0.5°C, 0.25°C, 0.125°C, and 0.0625°C, respectively.
   sensors.setResolution(addr_temp1,11); // The default resolution at power-up is 12-bit (ref:  https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf )
-  // sensors.setWaitForConversion(false); // async mode, needs more testing, one of two sensors did not always return data
+  sensors.setWaitForConversion(false);  // async mode
   
   Homie.onEvent(onHomieEvent);
   
   Homie.getMqttClient().setKeepAlive(75); //  Zie o.a. https://gitter.im/homie-iot/ESP8266?at=60a3ca03b10fc85b56a3029e  en
-                                          //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
-                                          //           https://github.com/homieiot/homie-esp8266/issues/340
-                                          //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
-                                          
+  //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
+  //           https://github.com/homieiot/homie-esp8266/issues/340
+  //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
+  
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
   digitalWrite(PIN_RST_OTHER, HIGH);
@@ -334,10 +334,11 @@ void loop() {
   
   if (millis() - last_publish >= publish_interval * 1000UL || last_publish == 0) {
     
-    sensors.requestTemperatures();        // Send the command to get temperatures, takes 1 second.
-    temp0 = sensors.getTempCByIndex(0);   // winecooler inside temp
-    if (dyncfg_temp0 != 0.0) temp0 = dyncfg_temp0;
-    temp1 = sensors.getTempCByIndex(1);  // winecooler outside temp
+    sensors.isConversionComplete(); // looks like calling isConversionComplete() will help returning valid data for first (temp0) sensor, after requestTemperatures() was excuted.
+    temp0 = sensors.getTempC(addr_temp0); // due to async approach, the sensors.requestTemperatures() is now after getTempC()
+    if (dyncfg_temp0 != 0.0) temp0 = dyncfg_temp0; // for testing purpose 
+    temp1 = sensors.getTempC(addr_temp1);
+    sensors.requestTemperatures();        // Send the command to get temperatures, is async now, so should be ready at next publish_interval    
     
     cool_level = analogRead(PIN_ANALOG);
     
@@ -361,14 +362,16 @@ void loop() {
     strcat(PubStr,"\"temp0\": "           );dtostrf(temp0,      4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);strcat(PubStr,",");
     strcat(PubStr,"\"temp1\": "           );dtostrf(temp1,      4, 2       ,PubStr_temp   );strcat(PubStr,PubStr_temp);  //no trailing comma!!
     strcat(PubStr,"}");
-
-    Serial << "PubStr=" << PubStr << endl;
-        
+    
+    PubPacketId = 0;
+    Homie.loop();
+    Serial << timeClient.getFormattedTime() << " PubPacketId=" << PubPacketId << " PubStr=" << PubStr << endl;
+    
     char txt_temp0[20];
     char txt_temp1[20];
     
     u8g2.clearBuffer(); // OLED display
-
+    
     if (toggle_display) {   //small font with name details
       u8g2.setFont(u8g2_font_ncenB10_tr);
       strcpy(txt_temp0, txt_temp0Setting.get());
@@ -385,9 +388,14 @@ void loop() {
         dtostrf(temp1,4,1,PubStr_temp);
         u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
       }
+      u8g2.setFont(u8g2_font_ncenB08_tr);
+      strcpy(txt_temp0,timeClient.getFormattedTime().c_str());
+      strcat(txt_temp0," utc");
+      u8g2.drawStr(0,drawStr_ty-18,txt_temp0);
+
       toggle_display = false;
     } else {           // large font numbers only
-
+      
       u8g2.setFont(u8g2_font_ncenB24_tr);
       if (strcmp(txt_temp0Setting.get(),"") > 0 ) {
         dtostrf(temp0,4,0,PubStr_temp);
@@ -401,12 +409,13 @@ void loop() {
       toggle_display = true;
     }
     
-    //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height
+    //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height // https://github.com/olikraus/u8g2/wiki/u8g2reference#updatedisplayarea
     u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.    
-
+    
+    
     last_publish = millis();
-    }
-
+  }
+  
   if ((millis() - last_adjust >= adjust_interval * 1000UL && adjust_interval != 0 )  || last_adjust == 0) {
     
     if(setpoint > 0.0 && temp0 > -85.00 && temp0 < 85.00 && adjust_interval != 0UL)   {    // temp0  +/- 85.00 or -127.00 are invalid (disconneted, wiring pull up resistor or very first measurement)
@@ -453,6 +462,5 @@ void loop() {
   last_adjust = millis();
   }
 
-  Homie.loop();
 
-  }
+}
