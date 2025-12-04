@@ -8,6 +8,17 @@
 #include <U8g2lib.h>
 #include <ArduinoJson.h>
 
+//https://github.com/marvinroger/async-mqtt-client/blob/develop/examples/FullyFeatured-ESP8266/FullyFeatured-ESP8266.ino
+//https://github.com/marvinroger/async-mqtt-client/issues/92
+#include <AsyncMqttClient.h>
+AsyncMqttClient& mqttClient = Homie.getMqttClient();
+String payloadBuf;
+String payloadBuf_substr;
+
+// char* topic = new char[strlen(Homie.getConfiguration().mqtt.baseTopic) + strlen(Homie.getConfiguration().deviceId) + 1 + strlen(winecoolerNode.getId()) + 1 + 7 + 1];
+char* topic = new char[strlen("homie/dev00x/winecooler/data") + 1];
+uint16_t SubPacketId = 0;
+
 WiFiUDP ntpUDP;
 // You can specify the time server pool and the offset (in seconds, can be
 // changed later with setTimeOffset() ). Additionally you can specify the
@@ -34,6 +45,11 @@ float          temp1           = -127.00;
 int            adjust_interval;
 int            mqtt_discon     = 0;
 int            wifi_discon     = 0;
+
+char           other_device[] = "dev002";
+float          other_device_temp0;
+float          other_device_temp1;
+
 
 // Temperature sensor on D5, place pull-up resistor between 2.2K or 4.7K to 5V
 #define        ONE_WIRE_BUS D5      //temp sensor DS18B20 on D5(5)
@@ -87,7 +103,10 @@ int    drawStr_ty;
 bool   toggle_display = true;
 
 // dyncfg json
-StaticJsonDocument<256> dyncfg_json;
+StaticJsonDocument<512> dyncfg_json; // use https://arduinojson.org/v6/assistant to check size
+
+// subscribed 'other' winecooler device
+StaticJsonDocument<512> other_device_json; // use https://arduinojson.org/v6/assistant to check size
 
 //Homie
 HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middelste parm toegevoegd bij upg naar Homie 3.0.0 */
@@ -142,6 +161,18 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
       break;
     case HomieEventType::MQTT_READY:
       Serial << "MQTT connected" << endl;
+
+      // idea based on https://github.com/homieiot/homie-esp8266/issues/138
+      strcpy(topic, Homie.getConfiguration().mqtt.baseTopic);
+      // strcat(topic, Homie.getConfiguration().deviceId);
+      strcat(topic, other_device);
+      strcat_P(topic, PSTR("/"));
+      strcat(topic, winecoolerNode.getId());
+      strcat_P(topic, PSTR("/data"));
+
+      SubPacketId = mqttClient.subscribe(topic, 0);
+      Serial << "MQTT Subscribied to topic " << topic << " at QoS 0, packetId: " << SubPacketId << endl;
+
       break;
     case HomieEventType::MQTT_DISCONNECTED:
       mqtt_discon++;
@@ -168,7 +199,7 @@ bool DynConfigHandler(const HomieRange& range, const String& value) {
   DeserializationError error = deserializeJson(dyncfg_json, value);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
 
   if (error) {
-    Serial << "deserializeJson() failed: " << error.f_str() << endl;
+    Serial << "deserializeJson() failed for 'dyncfg_json': " << error.f_str() << endl;
     return false;
   } else {
     
@@ -189,7 +220,7 @@ bool DynConfigHandler(const HomieRange& range, const String& value) {
     // When dyncfg_temp0    = 0.0, then the real temperture sensor wiil be used, in stead of this manual dyncfg override.
     // When dyncfg_cool_pot = 0,   then the current cool_pot value wiil be used, in stead of this manual dyncfg override.
     // When dyncfg_heat_pwm = 0,   then the current heat_pwm value wiil be used, in stead of this manual dyncfg override.
-    }
+  }
   return true;
 }
 
@@ -206,6 +237,46 @@ bool PulseLowHandler(const HomieRange& range, const String& value) {
   
   return true;
 }
+
+void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
+  Serial << "Subscribe acknowledged - packetId: " << packetId << " qos " << qos << endl;
+}
+
+void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
+// https://github.com/marvinroger/async-mqtt-client/issues/92  
+  if (index == 0) {
+    payloadBuf = "";
+  }
+
+  auto pl = len;
+  auto p = payload;
+  while (pl--) {
+    payloadBuf += *(p++);
+  }
+
+  if (index + len == total) {
+
+      Serial << "payloadBuf for 'other_device' " << other_device << " = " << payloadBuf << endl;
+      if (payloadBuf != "false") {
+        DeserializationError error = deserializeJson(other_device_json, payloadBuf);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
+
+        if (error) {
+          Serial << "deserializeJson() failed for '(other_device_json': " << error.f_str() << endl;
+          return;
+        } else {
+          
+          other_device_temp0 = other_device_json["temp0"];
+          other_device_temp1 = other_device_json["temp1"];
+          char SubStr_temp[10];
+          dtostrf(other_device_temp0,4,1,SubStr_temp);
+          Serial << "other_device_temp0 = " << SubStr_temp;
+          dtostrf(other_device_temp1,4,1,SubStr_temp);
+          Serial << "  other_device_temp1 = " << SubStr_temp << endl;
+
+        }
+      }
+    }
+  }
 
 void setup() {
   Serial.begin(115200);
@@ -304,6 +375,9 @@ void setup() {
   //           https://gitter.im/homie-iot/ESP8266?at=58aa156421d548df2c2ee530
   //           https://github.com/homieiot/homie-esp8266/issues/340
   //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
+  
+  mqttClient.onSubscribe(onMqttSubscribe);
+  mqttClient.onMessage(onMqttMessage);
   
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
