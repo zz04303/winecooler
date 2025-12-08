@@ -32,7 +32,7 @@ const double   DEFAULT_TEMP_HYSTERESIS  = 0.2;
 
 unsigned long  last_publish = 0;
 char           PubStr[500];
-unsigned long  PubPacketId = 0;
+unsigned long  PubPacketId  = 0;
 
 int            publish_interval;
 float          setpoint;
@@ -268,10 +268,10 @@ void onMqttMessage(char* other_topic, char* payload, AsyncMqttClientMessagePrope
 
       Serial << "payloadBuf for 'other_device' " << other_device << " = " << payloadBuf << endl;
       if (payloadBuf != "false") {
-        DeserializationError error = deserializeJson(other_device_json, payloadBuf);  // Handig! gebruik https://arduinojson.org/v6/example/parser/ bepaalt size van json en genereerst ook stukje code!!
+        DeserializationError error = deserializeJson(other_device_json, payloadBuf);  // Handy! use https://arduinojson.org/v6/example/parser/ for sizing json data and sample code!!
 
         if (error) {
-          Serial << "deserializeJson() failed for '(other_device_json': " << error.f_str() << endl;
+          Serial << "deserializeJson() failed for 'other_device_json': " << error.f_str() << endl;
           return;
         } else {
           
@@ -353,7 +353,10 @@ void setup() {
   //3.0.18  - 20251130 temp async mode again, differently 
   //          20251201 Homie.loop() moved to inside publish_interval section, fixes lost publish messages                
   //3.0.19  - 20251202 revert move Homie.loop(), publish to /data now inside publish_interval section. Empty loopHandler. 
-  //3.0.20  - 20251208 subscribe to 'other_device' to obtain temp0, temp1 abd display as second instance on OLED display.
+  //3.0.20  - 20251208 subscribe to 'other_device' to obtain temp0, temp1 and display as second instance on OLED display.
+  //                   See sample config.json for details. Depending on omitted or empty string for display parms, display will be used, or not, for the display onwning device.
+  //                   - when config.json settings.txt_temp0 is ommitted or empty string, no display used
+  //                   - when config.json setttings_other_device is ommitted or empty string, no data from 'data' topic of other device is used for secondary data on display. 
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -402,12 +405,12 @@ void setup() {
   
   Homie.setup();
   
-  setpoint             = setpointSetting.get();
-  hysteresis           = hysteresisSetting.get();
-  adjust_interval      = adjust_intervalSetting.get();
-  publish_interval     = publish_intervalSetting.get();
-  cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
-  cool_pot             = cool_max;               // initial value of cool_pot
+  setpoint         = setpointSetting.get();
+  hysteresis       = hysteresisSetting.get();
+  adjust_interval  = adjust_intervalSetting.get();
+  publish_interval = publish_intervalSetting.get();
+  cool_max         = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
+  cool_pot         = cool_max;               // initial value of cool_pot
   strcpy(txt_temp0,txt_temp0Setting.get());
   strcpy(txt_temp1,txt_temp1Setting.get());
   strcpy(other_device,other_deviceSetting.get());
@@ -415,7 +418,7 @@ void setup() {
   strcpy(txt_other_temp1,txt_other_temp1Setting.get());
   
   if (strcmp(txt_temp0,"") > 0 ) {
-    u8g2.begin(); // OLED display
+    u8g2.begin(); // use OLED display
   }
 
   if (strcmp(other_device,"") > 0 ) {
@@ -467,8 +470,6 @@ void loop() {
 
       u8g2.clearBuffer(); // OLED display
 
-      // drawStr_ty           = (txt_2nd_lineSetting.get() ? 64 : 32 );
-      
       if (toggle_display) {   //small font with name details
 
         u8g2.setFont(u8g2_font_ncenB08_tr);
