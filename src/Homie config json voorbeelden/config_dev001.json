@@ -19,7 +19,12 @@
         "setpoint": 18,
         "hysteresis": 0.2,
         "publish_interval": 10,
-        "adjust_interval": 120,
-        "cool_max":75
+        "adjust_interval": 600,
+        "cool_max": 80,
+        "txt_temp0": "Rood",
+        "txt_temp1": "Kamer",
+        "other_device": "dev002",
+        "txt_other_temp0": "Wit",
+        "txt_other_temp1": ""
     }    
 }

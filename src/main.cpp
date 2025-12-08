@@ -15,8 +15,8 @@ AsyncMqttClient& mqttClient = Homie.getMqttClient();
 String payloadBuf;
 String payloadBuf_substr;
 
-// char* topic = new char[strlen(Homie.getConfiguration().mqtt.baseTopic) + strlen(Homie.getConfiguration().deviceId) + 1 + strlen(winecoolerNode.getId()) + 1 + 7 + 1];
-char* topic = new char[strlen("homie/dev00x/winecooler/data") + 1];
+// char* other_topic = new char[strlen(Homie.getConfiguration().mqtt.baseTopic) + strlen(Homie.getConfiguration().deviceId) + 1 + strlen(winecoolerNode.getId()) + 1 + 7 + 1];
+char* other_topic = new char[strlen("homie/dev00x/winecooler/data") + 1];
 uint16_t SubPacketId = 0;
 
 WiFiUDP ntpUDP;
@@ -46,9 +46,15 @@ int            adjust_interval;
 int            mqtt_discon     = 0;
 int            wifi_discon     = 0;
 
-char           other_device[] = "dev002";
-float          other_device_temp0;
-float          other_device_temp1;
+char           txt_temp[20];
+char           txt_temp0[20];
+char           txt_temp1[20];
+char           txt_other_temp0[20];
+char           txt_other_temp1[20];
+
+char           other_device[8];
+float          other_device_temp0 = -127.00;
+float          other_device_temp1 = -127.00;
 
 
 // Temperature sensor on D5, place pull-up resistor between 2.2K or 4.7K to 5V
@@ -114,14 +120,16 @@ HomieNode winecoolerNode("winecooler", "temperature", "temperature"); /* middels
 
 // VOORBEELD:  mosquitto_pub -t 'homie/dev00x/$implementation/config/set' -m '{"settings":{"setpoint":12}}' -r
 //  zorg er voor dat er al een "settings":{}  in de initiële config zit.
-HomieSetting<long>      publish_intervalSetting("publish_interval", "temp interval in seconds");
-HomieSetting<double>            setpointSetting("setpoint"        , "temp setpoint");
-HomieSetting<double>          hysteresisSetting("hysteresis"      , "temp hysteresis");
-HomieSetting<long>       adjust_intervalSetting("adjust_interval" , "adjust interval");
-HomieSetting<long>              cool_maxSetting("cool_max"        , "max cool potmeter");
-HomieSetting<const char*>      txt_temp0Setting("txt_temp0"       , "display txt_temp0");
-HomieSetting<const char*>      txt_temp1Setting("txt_temp1"       , "display txt_temp1");
-HomieSetting<bool>          txt_2nd_lineSetting("txt_2nd_line"    , "display txt on 2nd line");
+HomieSetting<long>       publish_intervalSetting("publish_interval", "temp interval in seconds");
+HomieSetting<double>             setpointSetting("setpoint"        , "temp setpoint");
+HomieSetting<double>           hysteresisSetting("hysteresis"      , "temp hysteresis");
+HomieSetting<long>        adjust_intervalSetting("adjust_interval" , "adjust interval");
+HomieSetting<long>               cool_maxSetting("cool_max"        , "max cool potmeter");
+HomieSetting<const char*>       txt_temp0Setting("txt_temp0"       , "display txt_temp0");
+HomieSetting<const char*>       txt_temp1Setting("txt_temp1"       , "display txt_temp1");
+HomieSetting<const char*> txt_other_temp0Setting("txt_other_temp0" , "display txt_other_temp0");
+HomieSetting<const char*> txt_other_temp1Setting("txt_other_temp1" , "display txt_other_temp1");
+HomieSetting<const char*>    other_deviceSetting("other_device"    , "other_device");
 
 void loopHandler() {
   // empty
@@ -162,16 +170,18 @@ void onHomieEvent(const HomieEvent& event) { // https://homieiot.github.io/homie
     case HomieEventType::MQTT_READY:
       Serial << "MQTT connected" << endl;
 
-      // idea based on https://github.com/homieiot/homie-esp8266/issues/138
-      strcpy(topic, Homie.getConfiguration().mqtt.baseTopic);
-      // strcat(topic, Homie.getConfiguration().deviceId);
-      strcat(topic, other_device);
-      strcat_P(topic, PSTR("/"));
-      strcat(topic, winecoolerNode.getId());
-      strcat_P(topic, PSTR("/data"));
+      
+      if (strcmp(other_device,"") > 0 ) {
+        // idea based on https://github.com/homieiot/homie-esp8266/issues/138
+        strcpy(other_topic, Homie.getConfiguration().mqtt.baseTopic);
+        strcat(other_topic, other_device);
+        strcat_P(other_topic, PSTR("/"));
+        strcat(other_topic, winecoolerNode.getId());
+        strcat_P(other_topic, PSTR("/data"));
 
-      SubPacketId = mqttClient.subscribe(topic, 0);
-      Serial << "MQTT Subscribied to topic " << topic << " at QoS 0, packetId: " << SubPacketId << endl;
+        SubPacketId = mqttClient.subscribe(other_topic, 0);
+        Serial << "MQTT Subscribied to other_topic " << other_topic << " at QoS 0, packetId: " << SubPacketId << endl;
+      }
 
       break;
     case HomieEventType::MQTT_DISCONNECTED:
@@ -242,7 +252,7 @@ void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
   Serial << "Subscribe acknowledged - packetId: " << packetId << " qos " << qos << endl;
 }
 
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
+void onMqttMessage(char* other_topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
 // https://github.com/marvinroger/async-mqtt-client/issues/92  
   if (index == 0) {
     payloadBuf = "";
@@ -267,6 +277,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
           
           other_device_temp0 = other_device_json["temp0"];
           other_device_temp1 = other_device_json["temp1"];
+
           char SubStr_temp[10];
           dtostrf(other_device_temp0,4,1,SubStr_temp);
           Serial << "other_device_temp0 = " << SubStr_temp;
@@ -282,7 +293,7 @@ void setup() {
   Serial.begin(115200);
   Serial << endl << endl;
   
-  Homie_setFirmware("winecooler", "3.0.19");
+  Homie_setFirmware("winecooler", "3.0.20");
   //1.1.3 - met nieuwe ESP8266 2.4.0-rc2
   //1.1.4 - eerste versie met light sensor er bij
   //1.1.5 - relay 'modulatie' verwarming te krachtig
@@ -342,6 +353,7 @@ void setup() {
   //3.0.18  - 20251130 temp async mode again, differently 
   //          20251201 Homie.loop() moved to inside publish_interval section, fixes lost publish messages                
   //3.0.19  - 20251202 revert move Homie.loop(), publish to /data now inside publish_interval section. Empty loopHandler. 
+  //3.0.20  - 20251208 subscribe to 'other_device' to obtain temp0, temp1 abd display as second instance on OLED display.
   
   Serial << "Compiled: " << __DATE__ << " | " << __TIME__ << " | " << __FILE__ <<  endl;
   Serial << "ESP CoreVersion       : " << ESP.getCoreVersion() << endl;
@@ -359,7 +371,10 @@ void setup() {
   cool_maxSetting.setDefaultValue(DEFAULT_COOL_MAX).setValidator([] (long candidate) { return candidate >= 75; });
   txt_temp0Setting.setDefaultValue("");
   txt_temp1Setting.setDefaultValue("");
-  txt_2nd_lineSetting.setDefaultValue(false);
+  other_deviceSetting.setDefaultValue("");
+  txt_other_temp0Setting.setDefaultValue("");
+  txt_other_temp1Setting.setDefaultValue("");
+ 
   
   pot.begin(CS,INC,UD); // Initialize Digital potentiometer X9C
   sensors.begin();      // Initialize Digital thermometer DS18B20
@@ -376,8 +391,6 @@ void setup() {
   //           https://github.com/homieiot/homie-esp8266/issues/340
   //           http://www.steves-internet-guide.com/mqtt-keep-alive-by-example/
   
-  mqttClient.onSubscribe(onMqttSubscribe);
-  mqttClient.onMessage(onMqttMessage);
   
   winecoolerNode.advertise("rst_other").setName("ResetOther").setDatatype("boolean").settable(PulseLowHandler);
   pinMode(PIN_RST_OTHER, OUTPUT);
@@ -386,7 +399,6 @@ void setup() {
   winecoolerNode.advertise("dyncfg").setName("DynConfig").setDatatype("boolean").settable(DynConfigHandler);  
   // in above statement earlier names like "dyn_cfg" and/or "Dynamic Configuration" caused troubles (exceptions at runtime). Maybe due to underscore or space in either names? )
   
-  u8g2.begin(); // OLED display
   
   Homie.setup();
   
@@ -396,9 +408,20 @@ void setup() {
   publish_interval     = publish_intervalSetting.get();
   cool_max             = cool_maxSetting.get();  // Based on resistor 20k + digi pot 10k  (so no original ntc and no 8.2k resistor)
   cool_pot             = cool_max;               // initial value of cool_pot
-  updateDisplayArea_ty = (txt_2nd_lineSetting.get() ?  4 :  0 );
-  drawStr_ty           = (txt_2nd_lineSetting.get() ? 64 : 32 );
+  strcpy(txt_temp0,txt_temp0Setting.get());
+  strcpy(txt_temp1,txt_temp1Setting.get());
+  strcpy(other_device,other_deviceSetting.get());
+  strcpy(txt_other_temp0,txt_other_temp0Setting.get());
+  strcpy(txt_other_temp1,txt_other_temp1Setting.get());
   
+  if (strcmp(txt_temp0,"") > 0 ) {
+    u8g2.begin(); // OLED display
+  }
+
+  if (strcmp(other_device,"") > 0 ) {
+    mqttClient.onSubscribe(onMqttSubscribe);
+    mqttClient.onMessage(onMqttMessage);
+  }
 }
 
 void loop() {
@@ -439,51 +462,94 @@ void loop() {
     PubPacketId = 0;
     PubPacketId = winecoolerNode.setProperty("data").send(PubStr); // serial log will show "X setNodeProperty(): impossible now" when MQTT not connected
     Serial << timeClient.getFormattedTime() << " PubPacketId=" << PubPacketId << " PubStr=" << PubStr << endl;
-    
-    char txt_temp0[20];
-    char txt_temp1[20];
-    
-    u8g2.clearBuffer(); // OLED display
-    
-    if (toggle_display) {   //small font with name details
-      u8g2.setFont(u8g2_font_ncenB10_tr);
-      strcpy(txt_temp0, txt_temp0Setting.get());
-      if (strcmp(txt_temp0,"") > 0 ) {
-        strcat(txt_temp0," ");
-        u8g2.drawStr(0, drawStr_ty,txt_temp0);
-        dtostrf(temp0,4,1,PubStr_temp);
-        u8g2.drawStr(32,drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
-      }
-      strcpy(txt_temp1, txt_temp1Setting.get());
-      if (strcmp(txt_temp1,"") > 0 ) {
-        strcat(txt_temp1," ");
-        u8g2.drawStr(64,drawStr_ty,txt_temp1);
-        dtostrf(temp1,4,1,PubStr_temp);
-        u8g2.drawStr(96,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
-      }
-      u8g2.setFont(u8g2_font_ncenB08_tr);
-      strcpy(txt_temp0,timeClient.getFormattedTime().c_str());
-      strcat(txt_temp0," utc");
-      u8g2.drawStr(0,drawStr_ty-18,txt_temp0);
+
+    if (strcmp(txt_temp0,"") > 0 ) {
+
+      u8g2.clearBuffer(); // OLED display
+
+      // drawStr_ty           = (txt_2nd_lineSetting.get() ? 64 : 32 );
       
-      toggle_display = false;
-    } else {           // large font numbers only
+      if (toggle_display) {   //small font with name details
+
+        u8g2.setFont(u8g2_font_ncenB08_tr);
+
+        drawStr_ty = 44;
+        
+        strcpy(txt_temp,timeClient.getFormattedTime().c_str());
+        strcat(txt_temp," utc");
+        u8g2.drawStr(0,drawStr_ty-18,txt_temp);
+
+        
+        strcpy(txt_temp, txt_temp0);
+        if (strcmp(txt_temp,"") > 0 ) {
+          u8g2.setFont(u8g2_font_ncenB10_tr);
+          strcat(txt_temp," ");
+          dtostrf(temp0,4,1,PubStr_temp);
+          strcat(txt_temp,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
+          u8g2.drawStr(0,drawStr_ty,txt_temp);
+        }
+        strcpy(txt_temp, txt_temp1);
+        if (strcmp(txt_temp,"") > 0 ) {
+          u8g2.setFont(u8g2_font_ncenB08_tr);
+          strcat(txt_temp," ");
+          dtostrf(temp1,2,0,PubStr_temp);
+          strcat(txt_temp,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
+          u8g2.drawStr(76,drawStr_ty,txt_temp);
+        }
+        
+        if (strcmp(other_device,"") > 0 ) {
+          
+          drawStr_ty = 64;
+          
+          strcpy(txt_temp, txt_other_temp0);
+          if (strcmp(txt_temp,"") > 0 ) {
+            u8g2.setFont(u8g2_font_ncenB10_tr);
+          strcat(txt_temp," ");
+          dtostrf(other_device_temp0,4,1,PubStr_temp);
+          strcat(txt_temp,((other_device_temp0 > -85.00 && other_device_temp0 < 85.00) ? PubStr_temp : "  --" ));
+          u8g2.drawStr(0,drawStr_ty,txt_temp);
+          }
+          strcpy(txt_temp, txt_other_temp1);
+          if (strcmp(txt_temp,"") > 0 ) {
+            u8g2.setFont(u8g2_font_ncenB08_tr);
+            strcat(txt_temp," ");
+            dtostrf(other_device_temp1,2,0,PubStr_temp);
+            strcat(txt_temp,((other_device_temp1 > -85.00 && other_device_temp1 < 85.00) ? PubStr_temp : "  --" ));
+            u8g2.drawStr(76,drawStr_ty,txt_temp);
+          }        
+        }
+        toggle_display = false;
+
+      } else {           // large font numbers only
+        
+        u8g2.setFont(u8g2_font_ncenB24_tr);
+
+        drawStr_ty = 32;
+
+        if (strcmp(txt_temp0,"") > 0 ) {
+          dtostrf(temp0,4,0,PubStr_temp);
+          u8g2.drawStr(32, drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
+        }
+
+        if (strcmp(other_device,"") > 0 ) {
+
+          drawStr_ty = 64; 
+
+          if (strcmp(txt_other_temp0,"") > 0 ) {
+            dtostrf(other_device_temp0,4,0,PubStr_temp);
+            u8g2.drawStr(32, drawStr_ty,((other_device_temp0 > -85.00 && other_device_temp0 < 85.00) ? PubStr_temp : "  --" ));
+          }  
+        }       
+
+        toggle_display = true;
+      }
       
-      u8g2.setFont(u8g2_font_ncenB24_tr);
-      if (strcmp(txt_temp0Setting.get(),"") > 0 ) {
-        dtostrf(temp0,4,0,PubStr_temp);
-        u8g2.drawStr(0, drawStr_ty,((temp0 > -85.00 && temp0 < 85.00) ? PubStr_temp : "  --" ));
-      }
-      if (strcmp(txt_temp1Setting.get(),"") > 0 ) {
-        u8g2.setFont(u8g2_font_ncenB18_tr);
-        dtostrf(temp1,4,0,PubStr_temp);
-        u8g2.drawStr(64,drawStr_ty,((temp1 > -85.00 && temp1 < 85.00) ? PubStr_temp : "  --" ));
-      }
-      toggle_display = true;
+      u8g2.sendBuffer();
+
+      other_device_temp0 = -127.00;
+      other_device_temp1 = -127.00;
+
     }
-    
-    //u8g2.updateDisplayArea(tx, ty, tw, th);  // tile_area_x_pos, tile_area_y_pos, tile_area_width, tile_area_height // https://github.com/olikraus/u8g2/wiki/u8g2reference#updatedisplayarea
-    u8g2.updateDisplayArea(0, updateDisplayArea_ty, 16, 4); // coordinates x,y in tiles. A tile is 8x8 pixels. tx, ty: Upper left corner of the area, given as tile position. tw, th: Width and height of the area in tiles.    
     
     
     last_publish = millis();
@@ -492,7 +558,7 @@ void loop() {
   if ((millis() - last_adjust >= adjust_interval * 1000UL && adjust_interval != 0 )  || last_adjust == 0) {
     
     if(setpoint > 0.0 && temp0 > -85.00 && temp0 < 85.00 && adjust_interval != 0UL)   {    // temp0  +/- 85.00 or -127.00 are invalid (disconneted, wiring pull up resistor or very first measurement)
-
+      
       
       if (dyncfg_cool_pot != 0) {
         cool_pot = dyncfg_cool_pot;
@@ -512,22 +578,22 @@ void loop() {
         if (cool_pot == cool_max) heat_pwm=heat_pwm+(heat_step*10);
         if (heat_pwm > heat_max)  heat_pwm=heat_max;
       }
-
+      
       if (temp0 > (setpoint + hysteresis) ) 
-        {
+      {
         if (cool_pot <= cool_max && cool_pot > cool_min && heat_pwm == heat_min) // currently within cooling range
-          {  
+        {  
           cool_pot=cool_pot-cool_step;
           if (cool_pot < cool_min) cool_pot=cool_min;
           };
 
-        if (heat_pwm > heat_min && heat_pwm <= heat_max ) // currently in heating range
+          if (heat_pwm > heat_min && heat_pwm <= heat_max ) // currently in heating range
           {  
           heat_pwm = heat_pwm-(heat_step*10);
           if (heat_pwm < heat_min) heat_pwm=heat_min;
           };
       }            
-
+      
     pot.setPot(uint16_t(cool_pot),true);       // true=save, so pot will keep value after shutdown if you do nothing else...
     analogWrite(PIN_PWM, heat_pwm);            // BE AWARE, range from 0-1024 !!  
     }
