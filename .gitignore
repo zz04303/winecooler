@@ -3,6 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+.vscode/extensions.json
 data/homie/config.json
 data/homie/config_dev*.json
 tmp/
+src/Homie config json voorbeelden/config.json
+src/Homie config json voorbeelden/config_dev*.json
