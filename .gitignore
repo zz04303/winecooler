@@ -6,5 +6,3 @@
 data/homie/config.json
 data/homie/config_dev*.json
 tmp/
-src/Homie config json voorbeelden/config.json
-src/Homie config json voorbeelden/config_dev*.json
